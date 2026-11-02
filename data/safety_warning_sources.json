@@ -1,0 +1,72 @@
+{
+  "age_rules": [
+    {
+      "id": "SAFE-DIAZEPAM-UNDER6",
+      "names": [
+        "Diazepam"
+      ],
+      "under_years": 6,
+      "file": "A0016461G0.pdf",
+      "page": 1,
+      "quote": "6歲以下兒童不宜使用。",
+      "pdf_sha256": "fcc3c9c3363e03d865a90a1cebf0233fe797646026424427e733d56b6fb8b57b"
+    }
+  ],
+  "pair_rules": [
+    {
+      "id": "SAFE-CLOP-IBU",
+      "left_names": [
+        "Clopidogrel",
+        "CLOPIDOGREL HYDROGEN SULFATE",
+        "CLOPIDOGREL HYDROGENSULFATE"
+      ],
+      "right_names": [
+        "Ibuprofen"
+      ],
+      "title": "新增官方來源：NHS Clopidogrel與止痛藥",
+      "url": "https://www.nhs.uk/medicines/clopidogrel/taking-clopidogrel-with-other-medicines-and-herbal-supplements/",
+      "quote": "ibuprofen while you're taking clopidogrel, unless a doctor has said it's OK. They increase the chance of bleeding.",
+      "message": "Clopidogrel × Ibuprofen：NHS記載此併用增加出血機會，除非醫師已同意，不應自行加用Ibuprofen。請藥師核對自購藥、用量、出血症狀及實際處方，必要時聯繫開方醫師；不要自行停掉原本的Clopidogrel。",
+      "scope": "新增官方衛教來源，非原始100份仿單或MedHop推論。來源提到的止痛用Aspirin不等於醫師開立的低劑量抗血小板療程。",
+      "verified_on": "2026-11-02",
+      "excerpt_sha256": "ae66a8db0026dd2a9ffa42726ae382d3fbe89bc67a88fa84072d45d4ffa5524e"
+    },
+    {
+      "id": "SAFE-ASA-IBU",
+      "left_names": [
+        "Aspirin",
+        "Acetylsalicylic acid"
+      ],
+      "right_names": [
+        "Ibuprofen"
+      ],
+      "title": "新增官方來源：FDA Ibuprofen與Aspirin併用",
+      "url": "https://www.fda.gov/drugs/safe-use-aspirin/information-about-taking-ibuprofen-and-aspirin-together",
+      "quote": "taking ibuprofen at the same time, for pain relief, may interfere with the benefits of aspirin for the heart.",
+      "message": "Aspirin × Ibuprofen：FDA提醒Ibuprofen可能干擾Aspirin用於心臟保護的效益。請藥師確認Aspirin適應症、劑型、兩藥實際服用時間及自購情況，與醫師核對處置；不自行停掉醫師開立的Aspirin，也不套用未核對的固定間隔。",
+      "scope": "新增官方安全資訊；並非所有劑型或服藥時間均具有相同影響，不以共同靶點直接下結論。",
+      "verified_on": "2026-11-02",
+      "excerpt_sha256": "9b010f40427d351077b69c99b54226f8acf8ca47c148bc836f4321a340686efb"
+    },
+    {
+      "id": "SAFE-SUMATRIPTAN-FLUOXETINE",
+      "left_names": [
+        "Sumatriptan",
+        "SUMATRIPTAN SUCCINATE"
+      ],
+      "right_names": [
+        "Fluoxetine",
+        "FLUOXETINE HYDROCHLORIDE"
+      ],
+      "title": "新增官方仿單：DailyMed Sumatriptan §5.7／§7.4 血清素症候群",
+      "url": "https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=352d2ab3-d2c7-48c8-bcd4-d46ed9bdfa85",
+      "quote": "Serotonin syndrome may occur with sumatriptan tablets, particularly during coadministration with selective serotonin reuptake inhibitors (SSRIs)",
+      "message": "Sumatriptan × Fluoxetine：Sumatriptan仿單提醒，與Fluoxetine這類SSRI併用可能出現血清素症候群。請藥師核對最近新增或加量、實際服藥時間、其他血清素相關藥物及症狀，與開方醫師確認監測安排；不是所有病人一律禁用或必須停藥。若出現發熱、躁動或意識異常、心跳加快、肌肉僵硬或協調異常，應立即就醫。",
+      "scope": "新增官方仿單，並非原始100份PDF或由MedHop路徑推定。§5.7／§7.4支持SSRI併用警語；Fluoxetine為SSRI。若懷疑血清素症候群，仿單要求停止Sumatriptan並立即就醫評估；系統不自動更改處方。",
+      "identity_reference_url": "https://dailymed.nlm.nih.gov/dailymed/fda/fdaDrugXsl.cfm?setid=b56f236d-fbf8-48e3-ad42-8abe4aafcbfc",
+      "verified_on": "2026-11-02",
+      "excerpt_sha256": "3a11f37c54cc9d7864b86aafca46725b286b265f4ae291783e25162ebe196ca3"
+    }
+  ],
+  "scope": "具體風險只由已核對來源或既有驗證配對提供；其餘顯示資料缺口及待核對，不捏造禁忌。"
+}

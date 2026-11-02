@@ -11,6 +11,7 @@ from governance import PrivateStore, Catalog, ReviewGate, drafts, redact, medica
 from agent_service import run_agents, graphrag
 from pair_integration import PairIntegration
 from population_checks import PopulationChecks
+from clinical_advice import ClinicalAdvice
 
 class Input(BaseModel):
     model_config=ConfigDict(extra='forbid')
@@ -24,6 +25,8 @@ class PatientProfile(Input):
     pregnancy:Literal['unknown','pregnant','not_pregnant','not_applicable']='unknown'
     pregnancy_weeks:int|None=Field(default=None,ge=0,le=45)
     lactation:Literal['unknown','breastfeeding','not_breastfeeding','not_applicable']='unknown'
+    height_cm:float|None=Field(default=None,gt=0,le=300)
+    weight_kg:float|None=Field(default=None,gt=0,le=600)
     history:str=Field(default='',max_length=3000)
     allergies:str=Field(default='',max_length=3000)
 class Select(Input):id:str=Field(min_length=1,max_length=80)
@@ -59,6 +62,10 @@ class ConfirmedChange(Input):
     text:str=Field(min_length=4,max_length=4000)
     note:str=Field(min_length=4,max_length=2000)
     acknowledged:bool
+    old_med_id:int|None=None
+    replacement_name:str=Field(default='',max_length=100)
+    replacement_dose:str=Field(default='',max_length=60)
+    replacement_frequency:str=Field(default='',max_length=160)
 class MedicationIdentity(Input):
     id:int
     entity:str=Field(default='',max_length=100)
@@ -103,6 +110,17 @@ class GovernedReview(core.ReviewJob):
         self.assessment['population_checks']=population['checks']
         self.sources.extend(population['sources'])
         self.step('核對病人條件與單藥禁忌','原始仿單',result=str(len(population['alerts']))+' 項來源警示')
+        advice=app.state.clinical_advice.evaluate(self.patient,self.assessment)
+        self.assessment['clinical_advice']=advice
+        self.assessment['population_checks'].extend(advice['additional_population_checks'])
+        population['alerts'].extend(advice['additional_population_checks'])
+        self.assessment.setdefault('interaction_alerts',[]).extend(advice['interaction_alerts'])
+        known={source['id'] for source in self.sources}
+        self.sources.extend(source for source in advice['sources'] if source['id'] not in known)
+        self.assessment['sources']=self.sources
+        self.step('整理具體替代候選與個別化衛教','原仿單＋新增官方指引',result=str(len(advice['dispensing_suggestions']))+' 組候選；未自動更改用藥')
+        from safety_alerts import apply_safety
+        apply_safety(core.ROOT,core.CORPUS.pages,self.patient,self.assessment)
         self.assessment['medication_checks']=medication_checks(self.patient,app.state.catalog)
         self.assessment['agent']={'status':'disabled','original_28_checks':False}
         if self.use_model:
@@ -175,6 +193,7 @@ async def lifespan(app):
     app.state.gate=ReviewGate(core.STORE)
     app.state.integration=PairIntegration(core.CORPUS)
     app.state.population=PopulationChecks(core.ROOT,core.CORPUS.pages)
+    app.state.clinical_advice=ClinicalAdvice(core.ROOT,core.CORPUS.pages)
     app.state.label_interactions=LabelInteractions(core.ROOT,core.CORPUS.pages)
     yield
     for job in list(core.JOBS.values()):job.stop.set()
@@ -218,6 +237,12 @@ def with_population(result):
     indexed=app.state.label_interactions.evaluate(patient)
     result['interaction_alerts']=indexed['alerts'];result['interaction_alert_sources']=indexed['sources']
     result['population_checks']=population['checks'];result['patient_alerts']=population['alerts'];result['patient_alert_sources']=population['sources']
+    from safety_alerts import apply_safety
+    safety={'population_checks':population['checks'],'interaction_alerts':indexed['alerts'],
+            'sources':list(population['sources'])+list(indexed['sources'])}
+    apply_safety(core.ROOT,core.CORPUS.pages,patient,safety)
+    result['safety_alerts']=safety['safety_alerts']
+    result['safety_alert_sources']=safety['sources']
     return result
 @app.post('/api/workflow')
 async def workflow(body:Message,request:Request):
@@ -236,6 +261,7 @@ async def patient_profile(body:PatientProfile,request:Request):
         if result['action'] in {'found','ambiguous','identity_conflict','need_identity'}:return result
     else:result={'action':'updated','steps':[],'message':'已更新病人基本資料；請依目前資料重新檢查。'}
     values=body.model_dump(exclude={'name','history','allergies'})
+    values={k:v for k,v in values.items() if k not in {'height_cm','weight_kg'} or k in body.model_fields_set}
     p=await asyncio.to_thread(core.STORE.update_profile,request.state.sid,values)
     clinical='\n'.join(label+'：'+value.strip() for label,value in [('病史',body.history),('過敏史',body.allergies)] if value.strip())
     if clinical:
@@ -347,9 +373,25 @@ async def confirm_change(body:ConfirmedChange,request:Request):
     if identity(body.text).get('name') or identity(body.text).get('id'):raise ValueError('處方變更不可切換病人')
     patient=core.STORE.active(request.state.sid)
     if not patient:raise ValueError('請先選擇病人')
-    meds=medications(body.text);stopped=[m for m in meds if m['status']=='stopped'];new=[m for m in meds if m['status']=='active' and m['kind']=='new_order']
-    if not stopped or not new or len(stopped)+len(new)!=len(meds):raise ValueError('請明確分行填寫「已停用：原藥名」及「新增處方：藥名、規格、頻次」')
-    if any(not m['dose'] or not m['frequency'] for m in new):raise ValueError('已確認的新處方須有實際規格／用量與頻次')
+    if body.old_med_id is not None:
+        old=next((m for m in patient['medications'] if m['id']==body.old_med_id and m['status']=='active'),None)
+        if not old:raise ValueError('原用藥不屬於目前病人的有效藥單')
+        name=body.replacement_name.strip();dose=body.replacement_dose.strip();freq=body.replacement_frequency.strip()
+        if not name or not freq or re.search(r'[\r\n\x00-\x1f]',name+dose+freq):raise ValueError('請完整填入單一藥名、用量與頻次，不可含換行或控制字元')
+        if re.search(r'[：:;；，,、]',name):raise ValueError('藥名欄位只能填單一實際藥品名稱')
+        amount=re.fullmatch(r'(\d+(?:\.\d+)?)(?:/(\d+(?:\.\d+)?))?\s*(mg|mcg|g|mL|毫克|微克|公克|錠|顆|單位|units?|IU|U)',dose,re.I)
+        if not amount or float(amount[1])<=0 or amount[2] and float(amount[2])<=0:raise ValueError('請填入正確且大於零的每次用量與單位')
+        insulin=bool(re.search(r'insulin|胰島素',name,re.I))
+        if insulin and not re.search(r'(?:單位|units?|IU|U)$',dose,re.I):raise ValueError('胰島素須使用醫師指定的單位，不可用mg換算')
+        if name.casefold() in {'insulin','胰島素'}:raise ValueError('請填醫師指定的胰島素製劑，不可只寫類別')
+        stopped=[{'id':old['id'],'name':old['name'],'status':'stopped'}]
+        new=[{'name':name,'dose':dose,'frequency':freq,'kind':'new_order','status':'active','text':f'{name} {dose}，{freq}'}]
+        change_text=f"已停用：{old['name']}\n新增處方：{name} {dose}，{freq}"
+    else:
+        meds=medications(body.text);stopped=[m for m in meds if m['status']=='stopped'];new=[m for m in meds if m['status']=='active' and m['kind']=='new_order']
+        if not stopped or not new or len(stopped)+len(new)!=len(meds):raise ValueError('請明確分行填寫「已停用：原藥名」及「新增處方：藥名、規格、頻次」')
+        if any(not m['dose'] or not m['frequency'] for m in new):raise ValueError('已確認的新處方須有實際規格／用量與頻次')
+        change_text=body.text
     with core.STORE.connect() as db:
         db.execute('BEGIN IMMEDIATE')
         selected=db.execute('SELECT patient_id FROM active_patient WHERE session=?',(request.state.sid,)).fetchone()
@@ -359,13 +401,16 @@ async def confirm_change(body:ConfirmedChange,request:Request):
         if db.execute('SELECT 1 FROM approvals WHERE review_id=?',(body.review,)).fetchone():raise ValueError('已交付版本不可修改，請重新檢查')
         for med in stopped:
             if not db.execute("SELECT 1 FROM patient_meds WHERE patient_id=? AND name_key=? AND status='active'",(patient['id'],key(med['name']))).fetchone():raise ValueError('停用藥物不在目前藥單：'+med['name'])
-        for med in stopped:db.execute("UPDATE patient_meds SET status='stopped',updated=? WHERE patient_id=? AND name_key=? AND status='active'",(stamp(),patient['id'],key(med['name'])))
+        for med in stopped:
+            if med.get('id') is not None:
+                if not db.execute("UPDATE patient_meds SET status='stopped',updated=? WHERE patient_id=? AND id=? AND status='active'",(stamp(),patient['id'],med['id'])).rowcount:raise ValueError('原用藥已變更，請重新檢查')
+            else:db.execute("UPDATE patient_meds SET status='stopped',updated=? WHERE patient_id=? AND name_key=? AND status='active'",(stamp(),patient['id'],key(med['name'])))
         for med in new:
             if db.execute("SELECT 1 FROM patient_meds WHERE patient_id=? AND name_key=? AND status='active'",(patient['id'],key(med['name']))).fetchone():raise ValueError('新增藥物已有有效紀錄，請先核對重複處方')
             db.execute('INSERT INTO patient_meds(patient_id,name,name_key,dose,frequency,kind,body,status,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?)',(patient['id'],med['name'],key(med['name']),med['dose'],med['frequency'],'new_order',redact(med['text']),'active',stamp(),stamp()))
         for med in new:db.execute("UPDATE patient_meds SET confirmation='confirmed' WHERE patient_id=? AND name_key=? AND status='active'",(patient['id'],key(med['name'])))
-        db.execute('INSERT INTO patient_actions(patient_id,review_id,action,note,created) VALUES(?,?,?,?,?) ON CONFLICT(review_id) DO UPDATE SET action=excluded.action,note=excluded.note,created=excluded.created',(patient['id'],body.review,'adjusted',redact(body.note)+'\n'+redact(body.text),stamp()))
-        db.execute('INSERT INTO patient_events(patient_id,body,source,created) VALUES(?,?,?,?)',(patient['id'],redact(body.text),'藥師已確認處方變更',stamp()))
+        db.execute('INSERT INTO patient_actions(patient_id,review_id,action,note,created) VALUES(?,?,?,?,?) ON CONFLICT(review_id) DO UPDATE SET action=excluded.action,note=excluded.note,created=excluded.created',(patient['id'],body.review,'adjusted',redact(body.note)+'\n'+redact(change_text),stamp()))
+        db.execute('INSERT INTO patient_events(patient_id,body,source,created) VALUES(?,?,?,?)',(patient['id'],redact(change_text),'藥師已確認處方變更',stamp()))
         db.execute('UPDATE patients SET version=version+1,updated=? WHERE id=?',(stamp(),patient['id']))
     core.STORE.audit(patient['id'],'confirmed_prescription_change',request.state.sid,{'review':body.review,'note':redact(body.note)})
     return {'patient':core.STORE.get(patient['id']),'message':'已記錄藥師確認的處方變更；請依新版本重新檢查。'}
@@ -437,3 +482,7 @@ async def static(name:str=''):
     if name not in {'index.html','app.js','workflow.js','compliance.js','app.css','reference.css','logo.png','workspace.js','workspace.css'}:return JSONResponse({'error':'找不到頁面'},status_code=404)
     return FileResponse(core.ROOT/'static'/name)
 
+
+# safety-alerts-backend-20261102
+
+# anthropometrics-api-20261103

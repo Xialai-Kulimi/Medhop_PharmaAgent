@@ -1,0 +1,19 @@
+{
+  "id": "SAFE-SUMATRIPTAN-FLUOXETINE",
+  "left_names": [
+    "Sumatriptan",
+    "SUMATRIPTAN SUCCINATE"
+  ],
+  "right_names": [
+    "Fluoxetine",
+    "FLUOXETINE HYDROCHLORIDE"
+  ],
+  "title": "新增官方仿單：DailyMed Sumatriptan §5.7／§7.4 血清素症候群",
+  "url": "https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=352d2ab3-d2c7-48c8-bcd4-d46ed9bdfa85",
+  "quote": "Serotonin syndrome may occur with sumatriptan tablets, particularly during coadministration with selective serotonin reuptake inhibitors (SSRIs)",
+  "message": "Sumatriptan × Fluoxetine：Sumatriptan仿單提醒，與Fluoxetine這類SSRI併用可能出現血清素症候群。請藥師核對最近新增或加量、實際服藥時間、其他血清素相關藥物及症狀，與開方醫師確認監測安排；不是所有病人一律禁用或必須停藥。若出現發熱、躁動或意識異常、心跳加快、肌肉僵硬或協調異常，應立即就醫。",
+  "scope": "新增官方仿單，並非原始100份PDF或由MedHop路徑推定。§5.7／§7.4支持SSRI併用警語；Fluoxetine為SSRI。若懷疑血清素症候群，仿單要求停止Sumatriptan並立即就醫評估；系統不自動更改處方。",
+  "identity_reference_url": "https://dailymed.nlm.nih.gov/dailymed/fda/fdaDrugXsl.cfm?setid=b56f236d-fbf8-48e3-ad42-8abe4aafcbfc",
+  "verified_on": "2026-11-02",
+  "excerpt_sha256": "3a11f37c54cc9d7864b86aafca46725b286b265f4ae291783e25162ebe196ca3"
+}

@@ -12,6 +12,29 @@ def canonical(value):
 def key(value):
     return canonical(value).casefold()
 
+
+# anthropometrics-20261103
+def anthropometrics(text):
+    text=canonical(text)
+    result={}
+    patterns=[('height_cm',r'身高\s*[：:]?\s*(\d+(?:\.\d+)?)\s*(公分|厘米|cm|公尺|m)(?![A-Za-z])'),
+              ('weight_kg',r'(?:體重|体重)\s*[：:]?\s*(\d+(?:\.\d+)?)\s*(公斤|千克|kg)(?![A-Za-z])')]
+    for field,pattern in patterns:
+        match=re.search(pattern,text,re.I)
+        if match:
+            value=float(match[1])
+            if field=='height_cm' and match[2].lower() in {'公尺','m'}:value*=100
+            result[field]=round(value,6)
+    validate_anthropometrics(result)
+    return result
+
+def validate_anthropometrics(values):
+    import math
+    for field,maximum,label in [('height_cm',300,'身高（公分）'),('weight_kg',600,'體重（公斤）')]:
+        value=values.get(field)
+        if value is not None and (isinstance(value,bool) or not isinstance(value,(int,float)) or not math.isfinite(value) or not 0<value<=maximum):
+            raise ValueError(label+'數值無效，請核對單位與輸入；未自動推算。')
+
 def identity(text):
     result={}
     pid=re.search(r'(?:病歷號(?:碼)?|病人編號|病歷編號)[ \t]*[：:=]?[ \t]*([A-Za-z0-9][A-Za-z0-9_-]{2,39})|(?<![A-Za-z])ID[ \t]*[：:=][ \t]*([A-Za-z0-9][A-Za-z0-9_-]{2,39})',text,re.I)
@@ -19,7 +42,7 @@ def identity(text):
     for name in re.finditer(r'(?:姓名|患者|病人|病患)\s*[：:]?\s*([\u4e00-\u9fff○〇ＯO·]{2,12}|[A-Za-z][A-Za-z .\'-]{1,45})',text):
         value=name[1]
         value=re.split(r'(?:今年|目前|今天|最近|表示|回報|反映|男性|女性|服用|正在|有病|來拿|用藥|的病歷|查詢|資料|基本|說)',value)[0].strip()
-        if value and value not in {'資料','基本資料','姓名','狀況','資訊','服藥','用藥','原文'}:
+        if value and not re.match(r'^(?:的|請|需|仍|已|尚未|這位|那位|同一|本人|狀態)',value) and value not in {'資料','基本資料','姓名','狀況','資訊','服藥','用藥','原文'}:
             result['name']=value
             break
     if 'name' not in result:
@@ -43,6 +66,7 @@ def identity(text):
     if not lactation:
         if re.search(r'未哺乳|沒有哺乳|已停止哺乳',text):result['lactation']='not_breastfeeding'
         elif re.search(r'正在哺乳|目前哺乳|哺乳中',text):result['lactation']='breastfeeding'
+    result.update(anthropometrics(text))
     return result
 
 def narrative_history(text):
@@ -56,9 +80,9 @@ def narrative_history(text):
         if fact and fact not in facts:facts.append(fact)
     return facts
 
-FREQ=re.compile(r'\b(?:QD|BID|TID|QID|HS|OHS|PRN|Q\d+H|AC|PC)\b|(?:每[日天週周晚]|一天|一日)[^，,。；;\n]{0,16}',re.I)
+FREQ=re.compile(r'(?:偏頭痛|頭痛|疼痛|症狀|痛|發作)(?:發作|出現|加劇)?(?:的時候|時)(?:才|再)?(?:有需要|需要|必要時|需要時)?(?:服用|使用|吃)|(?:有需要|需要|必要)才(?:服用|使用|吃)|按需(?:服用|使用|吃)?|需要時(?:服用)?|必要時(?:服用)?|持續貼用|貼片每\d+小時更換一次|\b(?:QD|BID|TID|QID|HS|OHS|PRN|Q\d+H|AC|PC)\b|(?:每[日天週周晚]|一天|一日)[^，,。；;\n]{0,16}',re.I)
 ATTRIBUTE_NAMES={'劑量','用量','每次用量','服用劑量','每日劑量','頻次','服用次數'}
-DOSE_VALUE=r'\d+(?:\.\d+)?(?:/\d+(?:\.\d+)?)?\s*(?:mcg|mg|mL|毫克|微克|公克|g\b|錠|顆)'
+DOSE_VALUE=r'\d+(?:\.\d+)?(?:/\d+(?:\.\d+)?)?\s*(?:mcg|mg|mL|毫克|微克|公克|g\b|錠|顆)(?:\s*/\s*(?:hour|hr|h|小時))?'
 IGNORE={'qd','bid','tid','qid','hs','prn','ac','pc','mg','mcg','ml','kg','pci','cad','gerd','egfr','hba','alt','ast','inr','nkcc','medhop','drugbank','graphrag','cyp','sr'}
 
 def medications(text):
@@ -70,7 +94,7 @@ def medications(text):
         from label_interactions import compound_line
         line=compound_line(line.strip())
         if not line:continue
-        if re.match(r'^(?:患者|姓名|病人|病患|病歷號(?:碼)?|病歷編號|ID[：:]|年齡|性別|懷孕|孕週|是否懷孕|哺乳|是否哺乳|診斷|病史|過敏|實驗室|缺貨|替代|基本)',line):
+        if re.match(r'^(?:患者|姓名|病人|病患|病歷號(?:碼)?|病歷編號|ID[：:]|年齡|性別|懷孕|孕週|是否懷孕|哺乳|是否哺乳|身高|體重|体重|診斷|病史|過敏|實驗室|缺貨|替代|基本)',line):
             if not re.search(r'(?:服用|正在吃|目前吃|目前用藥|現在吃)',line):
                 if re.match(r'^(?:替代|缺貨)',line):section='proposed'
                 continue
@@ -93,10 +117,12 @@ def medications(text):
                 if len(found)>line_start:
                     previous=found[-1];field='dose' if attribute else 'frequency';value=canonical((attribute or frequency_only)[1])
                     if not previous[field]:previous[field]=value;previous['text']+='，'+piece.strip()
+                    elif field=='frequency' and previous[field].startswith('持續貼用') and value.startswith('貼片每') and value not in previous[field]:
+                        previous[field]+='，'+value;previous['text']+='，'+piece.strip()
                 continue
             clean=re.sub(r'[（(][^）)]*[）)]',' ',piece)
             clean=re.sub(r'[：:]',' ',clean)
-            dose_matches=list(re.finditer(r"([A-Za-z][A-Za-z'/-]*(?:[ ]+[A-Za-z][A-Za-z'/-]*){0,2})\s*(\d+(?:\.\d+)?(?:/\d+(?:\.\d+)?)?\s*(?:mcg|mg|mL|毫克|微克|公克|g\b|錠|顆))",clean,re.I))
+            dose_matches=list(re.finditer(r"([A-Za-z][A-Za-z'/-]*(?:[ ]+[A-Za-z][A-Za-z'/-]*){0,2})\s*(\d+(?:\.\d+)?(?:/\d+(?:\.\d+)?)?\s*(?:mcg|mg|mL|毫克|微克|公克|g\b|錠|顆)(?:\s*/\s*(?:hour|hr|h|小時))?)",clean,re.I))
             extracted=[]
             research_id=re.search(r'\b(DB\d{5})\b(?:\s+(\d+(?:\.\d+)?\s*(?:mcg|mg|mL|g\b)))?',clean,re.I)
             if research_id and (re.fullmatch(r'\s*DB\d{5}(?:\s+.*)?',clean,re.I) and not re.search(r'[？?]|如何|查詢|機轉',clean) or re.search(r'用藥|服用|處方|藥品',piece)):
@@ -222,15 +248,16 @@ class PatientStore:
             CREATE TABLE IF NOT EXISTS patient_actions(id INTEGER PRIMARY KEY,patient_id TEXT,review_id TEXT UNIQUE,action TEXT,note TEXT,created TEXT);
             ''')
             columns={row[1] for row in db.execute('PRAGMA table_info(patients)')}
-            for name,definition in [('pregnancy',"TEXT NOT NULL DEFAULT 'unknown'"),('pregnancy_weeks','INTEGER'),('lactation',"TEXT NOT NULL DEFAULT 'unknown'")]:
+            for name,definition in [('pregnancy',"TEXT NOT NULL DEFAULT 'unknown'"),('pregnancy_weeks','INTEGER'),('lactation',"TEXT NOT NULL DEFAULT 'unknown'"),('height_cm','REAL'),('weight_kg','REAL')]:
                 if name not in columns:db.execute(f'ALTER TABLE patients ADD COLUMN {name} {definition}')
         with self.connect() as db:
             if 'confirmation' not in {r[1] for r in db.execute('PRAGMA table_info(patient_meds)')}:db.execute("ALTER TABLE patient_meds ADD COLUMN confirmation TEXT NOT NULL DEFAULT 'pending'")
     def update_profile(self,session,values):
         patient=self.active(session)
         if not patient:raise ValueError('請先新增或選擇病人')
-        allowed={'age','sex','pregnancy','pregnancy_weeks','lactation'}
+        allowed={'age','sex','pregnancy','pregnancy_weeks','lactation','height_cm','weight_kg'}
         values={k:v for k,v in values.items() if k in allowed}
+        validate_anthropometrics(values)
         if values.get('pregnancy',patient.get('pregnancy'))!='pregnant':values['pregnancy_weeks']=None
         changes={k:v for k,v in values.items() if patient.get(k)!=v}
         if changes:
@@ -311,7 +338,7 @@ class PatientStore:
             pending=db.execute('SELECT body,source FROM pending_patient WHERE session=?',(session,)).fetchone()
             db.execute('DELETE FROM pending_patient WHERE session=?',(session,))
         if pending:text=pending[0]+'\n'+text;source=pending[1]
-        profile={k:v for k,v in identity(text).items() if k in {'age','sex','pregnancy','pregnancy_weeks','lactation'}}
+        profile={k:v for k,v in identity(text).items() if k in {'age','sex','pregnancy','pregnancy_weeks','lactation','height_cm','weight_kg'}}
         if profile:patient=self.update_profile(session,profile)
         meds=medications(text)
         if getattr(self,'ingredient_lookup',None):meds.extend(self.ingredient_lookup.chinese_medications(text,meds))
@@ -451,3 +478,9 @@ def accept_classification(assessment,payload):
         elif status=='interaction' and re.search(r'增加|降低|增強|減弱|延長|升高|抑制|increase|decrease|inhibit',quote,re.I):
             pair.update(status='interaction',quote=quote,source_ids=[source['id']],action='contact_prescriber')
     return assessment
+
+# parser-frequency-fix-20261102
+
+# safety-followup-identity-20261102
+
+# symptom-prn-20261102

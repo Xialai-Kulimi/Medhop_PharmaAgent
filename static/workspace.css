@@ -84,3 +84,120 @@ body{font-size:15px;line-height:1.75}.top{background:#fff}.chat,.log,.record{bac
 .review-scope{border:1px solid #d7e5ef;padding:12px;border-radius:8px;margin:12px 0}.review-scope summary{cursor:pointer;color:#426e90}.review-scope ul{padding-left:20px;line-height:1.9;font-size:12px}.coverage-search{display:flex;gap:10px;margin:18px 0}.coverage-search input{flex:1;min-width:0;border:1px solid #bdd4e5;border-radius:7px;padding:9px;font:14px var(--sans)}.coverage-results p{font-size:13px;line-height:1.8}.coverage-path{padding:14px 0;border-top:1px solid #dce8f1}.coverage-path b{font-size:14px;overflow-wrap:anywhere}.coverage-gap{font-size:12px;color:#716b61;line-height:1.8}.evidence-pair>summary{cursor:pointer;font-weight:600;line-height:1.9}
 
 .selected-patient-title{font-size:17px;color:#315f82;margin:0 0 12px}.saved-result-label{font-size:12px;color:#63839b;border-bottom:1px solid #dce8f1;padding-bottom:12px}
+
+/* One source-grounded card per medication pair; no fabricated rankings. */
+.compact-assessment{display:flex;flex-direction:column;gap:20px;min-width:0}
+.compact-assessment h3{margin:0 0 14px;font-size:15px;color:#345d7d}
+.compact-assessment .drug-overview,.compact-assessment .clinical-summary,.compact-assessment .research-section{margin:0;min-width:0}
+.drug-components{display:block;margin-top:5px;font-size:11px;line-height:1.7;font-weight:400;color:#70879b}
+.compact-clinical-summary{border-top:1px solid #dce8f1;padding-top:19px}
+.compact-warning{border-left:3px solid #b33c34;background:#fff8f6;padding:13px 17px;margin:10px 0;border-radius:0 8px 8px 0}
+.compact-warning h4{font-size:14px;margin:0 0 5px;color:#a53830}
+.compact-warning .warning-message{font-size:14px;line-height:1.9;margin:0;color:#98453c}
+.compact-warning.is-pending{border-color:#8eb9d7;background:#f6faff}
+.compact-warning.is-pending h4,.compact-warning.is-pending .warning-message{color:#416c8b}
+.warning-source{margin-top:9px;font-size:12px}.warning-source>summary{cursor:pointer;color:#607c91}
+.warning-source blockquote{white-space:pre-wrap;font-size:12px;line-height:1.8;margin:12px 0;color:#5b7183}
+.compact-mechanism{padding:21px 22px;margin:0 0 15px;border:1px solid #bdd6e8;border-radius:14px;background:#fff}
+.mechanism-heading,.recommendation-heading{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:16px}
+.compact-mechanism h4{font-size:14px;margin:0 0 3px;color:#345d7d}
+.mechanism-pair{margin:0;font-size:12px;color:#74899c}
+.research-state{flex:none;border:1px solid #c9ddeb;border-radius:20px;padding:3px 10px;font-size:11px;line-height:1.7;color:#42759a;white-space:nowrap}
+.path-picker-label{display:flex;align-items:center;gap:12px;margin:0 0 17px;color:#71869a;font-size:11px;min-width:0}
+.path-picker{flex:1;min-width:0;max-width:100%;background:#f8fbfe;border:1px solid #d2e2ed;border-radius:7px;padding:7px 10px;color:#426f90;font:12px/1.7 var(--sans)}
+.compact-mechanism .mechanism-chain{gap:9px;padding:6px 0 20px;overflow-x:auto;align-items:center;scrollbar-width:thin}
+.compact-mechanism .mechanism-node{flex:1 0 95px;min-height:80px;min-width:95px;padding:13px 11px;border-color:#74a3c9;border-radius:11px;box-sizing:border-box}
+.compact-mechanism .mechanism-node b{font-size:15px;line-height:1.5;color:#28475e}
+.compact-mechanism .mechanism-node small{font-size:10px;line-height:1.7;margin-top:3px}
+.compact-mechanism .mechanism-node.mediator{border-radius:42px;background:#377eaf;border-color:#377eaf}
+.compact-mechanism .mechanism-node.mediator b{color:#fff}
+.compact-mechanism .mechanism-arrow{flex:.6 0 36px;min-width:36px}
+.compact-mechanism .mechanism-arrow small{font-size:9px;white-space:nowrap}.compact-mechanism .mechanism-arrow span{font-size:29px;line-height:1.4}
+.path-evidence{border-top:1px solid #dce8f1;padding:13px 0 0}
+.path-source-line{display:grid;grid-template-columns:24px minmax(0,1fr);gap:10px;margin:0 0 12px;align-items:baseline}
+.source-number{min-width:20px;min-height:20px;display:inline-block;font:12px/1.6 var(--sans);color:#397baa;white-space:nowrap}
+.path-source-quote{margin:0!important;font-size:12px!important;line-height:1.85!important;color:#637b90;font-style:italic;white-space:normal;overflow-wrap:anywhere}
+.path-source-actions{display:flex;flex-wrap:wrap;gap:7px 14px;margin-top:4px;align-items:baseline}
+.path-source-actions .text-btn{font-size:11px;line-height:1.8}.additional-edge-sources{font-size:11px}.additional-edge-sources>summary{cursor:pointer;color:#5d7f98}
+.path-audit{font-size:11px;border-top:1px solid #e3ecf3;padding-top:11px}.path-audit>summary{color:#67849a;cursor:pointer}
+.path-audit-row{padding:11px 0;border-bottom:1px solid #e3ecf3}.path-audit-row:last-child{border:0}
+.path-audit-row b{font-size:12px;color:#456b88}.path-audit-row p{font-size:12px;line-height:1.8;white-space:pre-wrap}
+.compact-mechanism .research-disclaimer{font-size:11px;line-height:1.8;margin:12px 0 0;padding-top:11px}
+.coverage-disclosure{font-size:11px;color:#698296}.coverage-disclosure>summary{cursor:pointer}.coverage-disclosure button{margin-top:9px}
+.compact-synthesis{border-top:1px solid #d8e6f0;padding-top:20px}.compact-synthesis p{font-size:14px;line-height:1.9;margin:9px 0}
+.compact-synthesis>.muted{font-size:12px}.original-assessment-answer{font-size:12px;margin-top:12px;color:#597a92}.original-assessment-answer>summary{cursor:pointer}.original-assessment-answer .say{white-space:pre-wrap;font-size:13px}
+.compact-disposition{margin-top:20px;padding:21px 22px;border-radius:14px;border-color:#bdd6e8}
+.compact-disposition h3{margin:0;font-size:15px;color:#345d7d}.recommendation-facts{display:grid;grid-template-columns:44px minmax(0,1fr);gap:10px 17px;margin:0;padding:15px 0;border-top:1px solid #dce8f1}
+.recommendation-facts dt{font-size:12px;color:#7c8e9e}.recommendation-facts dd{margin:0;font-size:13px;line-height:1.8;color:#36536a}
+.compact-disposition .recommendation-actions{margin:4px 0 15px;gap:10px}.compact-disposition .btn-primary{background:#267bb4;border-color:#267bb4;color:#fff}
+.compact-disposition .optional-action{font-size:12px}.compact-assessment .assessment-details{margin:0}
+@media(max-width:720px){.compact-mechanism,.compact-disposition{padding:15px}.mechanism-heading{flex-wrap:wrap}.path-picker-label{align-items:flex-start;flex-direction:column;gap:5px}.path-picker{width:100%;flex:auto}.compact-mechanism .mechanism-node{flex-basis:90px;min-width:90px;min-height:73px}.compact-mechanism .mechanism-node b{font-size:13px}.compact-mechanism .mechanism-arrow{flex-basis:30px;min-width:30px}.compact-assessment{gap:17px}.recommendation-facts{grid-template-columns:32px minmax(0,1fr);gap:9px 12px}.recommendation-actions>.btn{white-space:normal;text-align:center}.path-source-line{gap:7px;grid-template-columns:21px minmax(0,1fr)}}
+
+/* Compact education card and complete patient timeline. */
+.counseling-card{border:1px solid #b6d2e7;border-radius:14px;background:#fff;margin:20px 0;padding:0 20px 17px;min-width:0}
+.counseling-card-head{display:flex;align-items:center;gap:12px;border-bottom:1px solid #dbe7f0;padding:16px 0;margin-bottom:14px}
+.counseling-card-head h3{font-size:15px;margin:0;color:#2c4c65}.counseling-card-head .research-state{font-size:11px}
+.counseling-facts{display:grid;grid-template-columns:45px minmax(0,1fr);gap:12px 16px;margin:0 0 15px;padding:4px 0}
+.counseling-facts dt{color:#7c8e9f;font-size:13px}.counseling-facts dd{margin:0;font-size:14px;line-height:1.9;color:#29475f;white-space:pre-wrap;overflow-wrap:anywhere}
+.counseling-advice{font-weight:550}.counseling-edit,.counseling-prescription-change{font-size:11px;color:#567b98;margin:10px 0}
+.counseling-edit>summary,.counseling-prescription-change>summary{cursor:pointer}
+.counseling-edit label{display:block;font-size:12px;line-height:1.8;color:#55748c;margin:12px 0}
+.counseling-edit textarea{display:block;width:100%;border:1px solid #c2d7e6;border-radius:8px;margin-top:5px;padding:9px 12px;font:13px/1.8 var(--sans);resize:vertical;box-sizing:border-box}
+.counseling-actions{display:flex;gap:10px;flex-wrap:wrap;margin:17px 0 5px}.counseling-actions .btn-primary{background:#267bb4;border-color:#267bb4;color:#fff}
+.counseling-feedback{font-size:12px;line-height:1.8;color:#5c7c93;margin:7px 0;white-space:pre-wrap}
+.counseling-prescription-change{border-top:1px solid #e0eaf2;padding-top:11px;margin-bottom:0}.counseling-prescription-change button{display:block;margin:9px 0 0;font-size:12px}
+#recScroll .record-med-row{grid-template-columns:minmax(0,1.3fr) minmax(48px,.7fr) minmax(64px,.9fr);padding:12px 0;gap:6px 10px}
+#recScroll .record-med-row .status-tag{grid-column:1/-1;grid-row:auto;justify-self:start;font-size:10px}
+#recScroll .record-med-row.is-stopped{text-decoration:none;opacity:.72}
+#recScroll .record-med-row.is-stopped .record-med-name,#recScroll .record-med-row.is-stopped .record-med-dose,#recScroll .record-med-row.is-stopped .record-med-frequency{text-decoration:line-through}
+#recScroll .record-med-row.is-stopped .status-tag{text-decoration:none;color:#7a8792;background:#f5f7f9;border-style:solid}
+.clinical-intervention{padding:13px 11px;border-left:3px solid transparent;margin:0 0 8px;border-radius:0 8px 8px 0;min-width:0}
+.clinical-intervention.latest{background:#f1f7fc;border-left-color:#3a85b6}
+.intervention-title{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}.intervention-title time{font-size:11px;color:#7c8b99;white-space:nowrap}.intervention-title b{font-size:13px;color:#2d4c63}
+.change-label{margin-left:auto;color:#337aaa;font-size:10px}.clinical-intervention>p{font-size:12px;line-height:1.85;margin:7px 0;white-space:pre-wrap;overflow-wrap:anywhere}
+.intervention-facts{display:grid;grid-template-columns:26px minmax(0,1fr);gap:7px 10px;font-size:12px;line-height:1.9;margin:9px 0}
+.intervention-facts dt{color:#8494a2}.intervention-facts dd{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;color:#547087}
+.clinical-intervention>.text-btn{font-size:11px;margin-top:6px}
+.record-timeline{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:13px}
+.record-timeline-row{display:grid;grid-template-columns:88px minmax(0,1fr) 68px;gap:7px 10px;align-items:baseline;font-size:12px;line-height:1.8;min-width:0}
+.record-timeline-row>time{font-size:10px;color:#7c8d9c;white-space:normal}.timeline-actor{color:#7a8c9d;font-size:10px;text-align:right}
+.timeline-details{min-width:0}.timeline-details>summary{cursor:pointer;color:#496b84;overflow-wrap:anywhere}.timeline-detail-text{white-space:pre-wrap;overflow-wrap:anywhere;font:11px/1.8 var(--sans);margin:7px 0;color:#72879a}.timeline-details .text-btn{font-size:11px}
+.history-count{font-weight:400;margin-left:10px;font-size:10px;color:#8093a2}
+@media(min-width:1500px){#recScroll .record-med-row{grid-template-columns:minmax(0,1.2fr) minmax(48px,.65fr) minmax(68px,.9fr) auto}#recScroll .record-med-row .status-tag{grid-column:4;grid-row:1;justify-self:end}}
+@media(max-width:720px){.counseling-card{padding:0 15px 15px}.counseling-facts{grid-template-columns:30px minmax(0,1fr);gap:10px}.counseling-facts dd{font-size:13px}.counseling-actions .btn{white-space:normal}.record-timeline-row{grid-template-columns:75px minmax(0,1fr) 58px;gap:7px}.timeline-actor{font-size:10px}.clinical-intervention{padding:10px 9px}}
+
+.dispensing-card{margin:20px 0;border:1px solid #bad2e8;border-radius:16px;background:white;overflow:hidden}
+.dispensing-head{display:flex;align-items:center;gap:14px;padding:18px 22px;border-bottom:1px solid #d9e6f1}.dispensing-head h3{margin:0;font-size:16px;color:#274b69}
+.dispensing-facts{display:grid;grid-template-columns:42px minmax(0,1fr);gap:16px 20px;padding:22px;margin:0}.dispensing-facts dt{color:#7c91a6}.dispensing-facts dd{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.9}.dispensing-plan strong{color:#2566a4}.dispensing-sources{display:flex;gap:8px;flex-wrap:wrap}.dispensing-sources .text-btn{font-size:11px}
+.dispensing-edit{margin:0 22px 20px;color:#557d9e;font-size:12px}.dispensing-edit>summary{cursor:pointer}.dispensing-fields{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:16px}.dispensing-fields label{display:flex;flex-direction:column;gap:7px;color:#416683}.dispensing-fields label:first-child,.dispensing-fields label:last-child{grid-column:1/-1}.dispensing-fields input,.dispensing-fields select,.dispensing-fields textarea{box-sizing:border-box;min-width:0;width:100%;padding:10px;border:1px solid #bfd5e8;border-radius:9px;color:#294860;background:white;font:inherit}
+.dispensing-actions{display:flex;gap:12px;flex-wrap:wrap;padding:0 22px}.dispensing-feedback{padding:0 22px 12px;color:#577c99;font-size:12px;line-height:1.8}
+@media(max-width:720px){.dispensing-head{padding:15px}.dispensing-facts{padding:15px;gap:12px;grid-template-columns:30px minmax(0,1fr)}.dispensing-edit{margin:0 15px 15px}.dispensing-fields{grid-template-columns:1fr}.dispensing-actions{padding:0 15px}.dispensing-feedback{padding:0 15px 12px}.dispensing-actions .btn{white-space:normal}}
+
+.candidate-choice{margin:0 22px 18px;padding:14px;background:#f1f7fd;border-radius:10px}.candidate-choice label{display:flex;align-items:center;gap:12px;color:#345b7d;font-size:12px}.candidate-choice select{flex:1;min-width:0;padding:9px;border:1px solid #bad2e8;border-radius:8px;background:white;color:#285777}.candidate-dose-note,.candidate-requirements{font-size:11px;line-height:1.8;color:#597d9b;margin:10px 0 0}.candidate-requirements{color:#9d4438}.counseling-facts dd{white-space:pre-wrap}.counseling-citations{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;padding-top:12px;border-top:1px solid #dae6f1}.counseling-citations .text-btn{font-size:10px}.external-source-scope,.external-source-verification{color:#537797;font-size:12px;line-height:1.9}
+@media(max-width:720px){.candidate-choice{margin:0 15px 15px}.candidate-choice label{align-items:stretch;flex-direction:column}}
+
+/* safety-alerts-20261102 */
+.safety-alert-panel{margin:16px 0 22px;min-width:0}
+.safety-alert-panel>h3{color:#93382f;font-size:16px;margin:0 0 12px}
+.safety-alert-card{background:#fff7f5;border:1px solid #e9bfb8;border-left:4px solid #b34032;border-radius:10px;padding:15px 18px;margin:12px 0;overflow-wrap:anywhere}
+.safety-alert-card>h4{color:#9b352b;font-size:15px;margin:8px 0}
+.safety-alert-card>p{color:#94392f;line-height:1.85;margin:8px 0;white-space:pre-wrap}
+.safety-alert-label{display:inline-block;color:#9b352b;border:1px solid #dba39b;border-radius:5px;padding:2px 7px;font-size:11px;background:white}
+.safety-alert-card.safety-gap,.safety-alert-card.safety-review{background:#fffafa;border-left-style:dashed}
+.safety-evidence{font-size:12px;line-height:1.8;margin-top:12px;color:#6f4440}
+.safety-evidence>summary{cursor:pointer;color:#9b352b}
+.safety-evidence blockquote{margin:10px 0;padding-left:12px;border-left:2px solid #d9aaa3;color:#534b49;white-space:pre-wrap}
+.safety-evidence .source-chip{margin:4px 6px 4px 0}
+@media(max-width:720px){.safety-alert-card{padding:12px}.safety-alert-card>p{font-size:13px}}
+
+
+/* workspace-reading-search-20261103 */
+#log{overflow-anchor:none}
+.progress-details{margin:10px 0 16px;border:1px solid #dbe6ef;border-radius:8px;padding:10px 13px;color:#55758d}
+.progress-details>summary{cursor:pointer;font-size:12px;font-weight:600}
+.progress-details>.steps{margin:15px 0 0}
+.patient-search-results{display:flex;flex-direction:column;gap:6px;margin-top:6px;max-height:230px;overflow:auto}
+.patient-search-results[hidden]{display:none}
+.patient-search-results>p{margin:3px 0}
+.patient-search-choice{font:inherit;font-size:12px;text-align:left;line-height:1.7;padding:7px 10px;border:1px solid #c5d9e9;border-radius:7px;color:#315f83;background:#f6faff;cursor:pointer;overflow-wrap:anywhere}
+.patient-search-choice:hover,.patient-search-choice:focus-visible{background:#e8f3fc;border-color:#538cb8}

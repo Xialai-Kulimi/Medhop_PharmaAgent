@@ -1,0 +1,13 @@
+/* safety-alerts-20261102 */
+.safety-alert-panel{margin:16px 0 22px;min-width:0}
+.safety-alert-panel>h3{color:#93382f;font-size:16px;margin:0 0 12px}
+.safety-alert-card{background:#fff7f5;border:1px solid #e9bfb8;border-left:4px solid #b34032;border-radius:10px;padding:15px 18px;margin:12px 0;overflow-wrap:anywhere}
+.safety-alert-card>h4{color:#9b352b;font-size:15px;margin:8px 0}
+.safety-alert-card>p{color:#94392f;line-height:1.85;margin:8px 0;white-space:pre-wrap}
+.safety-alert-label{display:inline-block;color:#9b352b;border:1px solid #dba39b;border-radius:5px;padding:2px 7px;font-size:11px;background:white}
+.safety-alert-card.safety-gap,.safety-alert-card.safety-review{background:#fffafa;border-left-style:dashed}
+.safety-evidence{font-size:12px;line-height:1.8;margin-top:12px;color:#6f4440}
+.safety-evidence>summary{cursor:pointer;color:#9b352b}
+.safety-evidence blockquote{margin:10px 0;padding-left:12px;border-left:2px solid #d9aaa3;color:#534b49;white-space:pre-wrap}
+.safety-evidence .source-chip{margin:4px 6px 4px 0}
+@media(max-width:720px){.safety-alert-card{padding:12px}.safety-alert-card>p{font-size:13px}}

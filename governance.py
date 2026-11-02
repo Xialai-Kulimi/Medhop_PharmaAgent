@@ -90,11 +90,13 @@ class PrivateStore(PatientStore):
             with self.connect() as db:
                 meta={r['med_id']:dict(r) for r in db.execute('SELECT * FROM medication_meta')}
                 identifiers={r['med_id']:dict(r) for r in db.execute('SELECT * FROM medication_identifiers')}
-                result['queries']=[dict(r) for r in db.execute('SELECT id,version,created FROM patient_queries WHERE patient_id=? ORDER BY created DESC LIMIT 20',(pid,))]
+                result['queries']=[dict(r) for r in db.execute('SELECT id,version,created FROM patient_queries WHERE patient_id=? ORDER BY created DESC,rowid DESC',(pid,))]
             for med in result['medications']:
                 ident=identifiers.get(med['id'],{})
                 med.update(medhop_entity=ident.get('entity',''),medhop_identity_source=ident.get('source',''),medhop_identity_note=ident.get('note',''))
                 med.update(meta.get(med['id'],{'acquisition':'self_purchased' if re.search(r'自己買|自行購買|自購|OTC|成藥',med['body'],re.I) else 'prescribed' if med['kind']=='new_order' or '處方' in med['body'] else 'unknown','class':'unknown','license':'','note':''}))
+        if result:
+            result['interventions'],result['audit_events']=self.intervention_history(pid,result['actions'])
         if result and getattr(self,'ingredient_lookup',None):
             for med in result['medications']:self.ingredient_lookup.enrich(med)
         if result:
@@ -106,21 +108,106 @@ class PrivateStore(PatientStore):
             if len(set(recovered))==1:result['name']=recovered[0]
         return result
     def list(self,search=''):
-        if search:
-            with self.connect() as db:ids=[r[0] for r in db.execute('SELECT patient_id FROM identity_vault WHERE lookup=?',(self.digest(search),))]
-            if ids:return [self.get(pid) for pid in ids]
-        rows=super().list(search)
-        return [{**row,'name':self.get(row['id'])['name']} for row in rows]
+        # patient-search-20261103: names stay encrypted at rest.
+        query=key(search)
+        with self.connect() as db:
+            rows=db.execute('SELECT id,name,age,sex,updated FROM patients ORDER BY updated DESC,id').fetchall()
+            vault=db.execute('SELECT patient_id,encrypted FROM identity_vault').fetchall()
+        recovered=collections.defaultdict(set)
+        for item in vault:
+            try:recovered[item['patient_id']].add(self.cipher.decrypt(item['encrypted'].encode()).decode())
+            except Exception:continue
+        result=[]
+        for row in rows:
+            row=dict(row);names=recovered.get(row['id'],set())
+            if len(names)==1:row['name']=next(iter(names))
+            if not query or query in key(row['name'] or '') or query in key(row['id']):result.append(row)
+            if len(result)>=40:break
+        return result
     def audit(self,pid,event,actor,detail):
         actor=actor if not re.fullmatch(r'[A-Za-z0-9_-]{32}',actor) else 'session:'+hashlib.sha256(actor.encode()).hexdigest()[:12]
         with self.connect() as db:db.execute('INSERT INTO audit(patient_id,event,actor,detail,created) VALUES(?,?,?,?,?)',(pid,event,actor,json.dumps(detail,ensure_ascii=False),stamp()))
     def disposition(self,session,rid,action,note):
-        p=self.active(session);note=redact(note,p['name'] if p else '')
+        p=self.active(session)
+        if not p:raise ValueError('請先選擇此檢查所屬的病人')
+        note=redact(note,p.get('name','')).strip()
+        if action not in {'contact_prescriber','adjusted','reviewed'}:raise ValueError('請選擇處置方式')
+        if len(note)<4:raise ValueError('請填寫實際處置或衛教內容')
+        try:payload=json.loads(note)
+        except (ValueError,TypeError):payload=None
+        if isinstance(payload,dict) and payload.get('kind')=='counseling':
+            if set(payload)-{'kind','record_id','advice','education','source_ids'}:raise ValueError('衛教紀錄包含不支援的欄位')
+            if not isinstance(payload.get('record_id'),str) or not re.fullmatch(r'[A-Za-z0-9_-]{8,80}',payload['record_id']):raise ValueError('衛教紀錄識別碼不正確')
+            for field in ['advice','education']:
+                if not isinstance(payload.get(field),str) or len(payload[field])>1800:raise ValueError('建議與衛教內容須為1800字內文字')
+            if not (payload['advice'].strip() or payload['education'].strip()):raise ValueError('請保留至少一項實際建議或衛教內容')
+            if not isinstance(payload.get('source_ids'),list) or any(not isinstance(s,str) for s in payload['source_ids']):raise ValueError('衛教來源格式不正確')
+        actor=session if not re.fullmatch(r'[A-Za-z0-9_-]{32}',session) else 'session:'+hashlib.sha256(session.encode()).hexdigest()[:12]
         with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            selected=db.execute('SELECT patient_id FROM active_patient WHERE session=?',(session,)).fetchone()
+            review=db.execute('SELECT patient_id,version,result FROM patient_reviews WHERE id=?',(rid,)).fetchone()
+            current=db.execute('SELECT version FROM patients WHERE id=?',(p['id'],)).fetchone()
+            if not selected or selected[0]!=p['id'] or not review or review['patient_id']!=p['id']:raise ValueError('請先選擇此檢查所屬的病人')
+            if not current or current[0]!=review['version']:raise ValueError('用藥資料已變更，請重新檢查後再記錄處置')
             if db.execute('SELECT 1 FROM approvals WHERE review_id=?',(rid,)).fetchone():raise ValueError('已確認交付的版本不能修改處置；請重新檢查')
-        result=super().disposition(session,rid,action,note)
-        self.audit(result['id'],'disposition',session,{'review':rid,'action':action,'note':note})
-        return result
+            if isinstance(payload,dict) and payload.get('kind')=='counseling':
+                result=json.loads(review['result']);assessment=result.get('assessment') or {}
+                valid_ids={s['id'] for s in assessment.get('sources',result.get('sources',[]))}
+                if set(payload['source_ids'])-valid_ids:raise ValueError('衛教來源不屬於這次檢查')
+                # A retried confirmation must not append a second history entry.
+                existing=db.execute("SELECT detail FROM audit WHERE patient_id=? AND event='disposition'",(p['id'],)).fetchall()
+                for row in existing:
+                    try:
+                        old_detail=json.loads(row['detail'])
+                        old=json.loads(old_detail.get('note',''))
+                    except (ValueError,TypeError):continue
+                    if isinstance(old,dict) and old.get('record_id')==payload['record_id']:
+                        if old!=payload or old_detail.get('review')!=rid:raise ValueError('同一衛教紀錄識別碼不能改寫不同內容或檢查')
+                        return self.get(p['id'])
+            created=stamp()
+            db.execute('INSERT INTO patient_actions(patient_id,review_id,action,note,created) VALUES(?,?,?,?,?) ON CONFLICT(review_id) DO UPDATE SET action=excluded.action,note=excluded.note,created=excluded.created',(p['id'],rid,action,note,created))
+            # Latest action stays compatible with existing review gates. The audit is append-only.
+            db.execute('INSERT INTO audit(patient_id,event,actor,detail,created) VALUES(?,?,?,?,?)',(p['id'],'disposition',actor,json.dumps({'review':rid,'action':action,'note':note},ensure_ascii=False),created))
+            db.execute('UPDATE patients SET updated=? WHERE id=?',(created,p['id']))
+        return self.get(p['id'])
+
+    def intervention_history(self,pid,legacy_actions):
+        with self.connect() as db:
+            rows=[dict(row) for row in db.execute('SELECT * FROM audit WHERE patient_id=? ORDER BY id',(pid,))]
+        interventions=[];seen=set()
+        for row in rows:
+            try:detail=json.loads(row['detail'])
+            except (ValueError,TypeError):detail={}
+            if not isinstance(detail,dict):detail={}
+            row['detail']=detail
+            if row['event'] not in {'disposition','confirmed_prescription_change'}:continue
+            action='adjusted' if row['event']=='confirmed_prescription_change' else detail.get('action','reviewed')
+            note=detail.get('note','');review=detail.get('review','')
+            try:payload=json.loads(note)
+            except (ValueError,TypeError):payload=None
+            counseling=isinstance(payload,dict) and payload.get('kind')=='counseling'
+            interventions.append({'id':'audit-'+str(row['id']),'review_id':review,'created':row['created'],
+                                  'kind':'counseling' if counseling else 'prescription_change' if row['event']=='confirmed_prescription_change' else 'disposition',
+                                  'action':action,'note':note,'advice':payload.get('advice','') if counseling else '',
+                                  'education':payload.get('education','') if counseling else '',
+                                  'source_ids':payload.get('source_ids',[]) if counseling else [],'record_id':payload.get('record_id','') if counseling else '', 'actor':'藥師紀錄'})
+            seen.add((review,action,note))
+        # Legacy databases may contain actions written before the audit was introduced.
+        for row in legacy_actions:
+            if (row['review_id'],row['action'],row['note']) in seen:continue
+            # Confirmed prescription changes keep text in patient_events and note in audit.
+            if any(i['kind']=='prescription_change' and i['review_id']==row['review_id'] and row['note'].startswith(i['note']) for i in interventions):continue
+            try:payload=json.loads(row['note'])
+            except (ValueError,TypeError):payload=None
+            counseling=isinstance(payload,dict) and payload.get('kind')=='counseling'
+            interventions.append({**row,'id':'legacy-'+str(row['id']),'kind':'counseling' if counseling else 'disposition',
+                                  'advice':payload.get('advice','') if counseling else '', 'education':payload.get('education','') if counseling else '',
+                                  'source_ids':payload.get('source_ids',[]) if counseling else [],'record_id':payload.get('record_id','') if counseling else '', 'actor':'既有紀錄'})
+        interventions.sort(key=lambda item:(item['created'],int(str(item['id']).split('-')[-1])))
+        return interventions,rows
+
+
 
 class Catalog:
     def __init__(self,root,pages=None):
@@ -198,13 +285,13 @@ def drafts(patient,assessment):
     if patient.get('age') is None:missing.append('年齡')
     if patient.get('sex') in ('',None,'未確認'):missing.append('性別')
     if patient.get('sex')!='男' and patient.get('pregnancy','unknown')=='unknown':missing.append('懷孕狀態')
-    if patient.get('sex')!='男' and patient.get('lactation','unknown')=='unknown':missing.append('哺乳狀態')
     if missing:reasons.append({'id':'patient-context','text':'病人基本資料待確認：'+'、'.join(missing)})
     if patient.get('sex')!='男' and (patient.get('pregnancy')=='pregnant' or patient.get('lactation')=='breastfeeding'):reasons.append({'id':'patient-special-population','text':'已回報懷孕或哺乳：請依實際產品原文與病人條件核對用藥；系統不以配對圖譜代替此項評估'})
     pharmacist=[PENDING+'｜藥師摘要',f'個案 {patient["id"]}｜用藥版本 {patient["version"]}',f'{len(assessment["medications"])} 項用藥；{len(assessment["pairs"])} 組配對。']
     if assessment.get('pharmacy_rag'):pharmacist.append('仿單檢索：'+assessment['pharmacy_rag']['method']+'；原文引用：'+', '.join(assessment['pharmacy_rag']['source_ids']))
     pharmacist.append('病人條件：年齡 '+(str(patient.get('age'))+'歲' if patient.get('age') is not None else '未提供')+'；性別 '+(patient.get('sex') or '未確認'))
-    if patient.get('sex')!='男':pharmacist.append('懷孕狀態：'+{'unknown':'未確認','pregnant':'懷孕中','not_pregnant':'未懷孕','not_applicable':'不適用'}.get(patient.get('pregnancy'),'未確認')+'；孕週：'+(str(patient['pregnancy_weeks']) if patient.get('pregnancy_weeks') is not None else '未提供')+'；哺乳狀態：'+{'unknown':'未確認','breastfeeding':'哺乳中','not_breastfeeding':'未哺乳','not_applicable':'不適用'}.get(patient.get('lactation'),'未確認'))
+    pharmacist.append('身高：'+(str(patient['height_cm'])+'公分' if patient.get('height_cm') is not None else '未提供')+'；體重：'+(str(patient['weight_kg'])+'公斤' if patient.get('weight_kg') is not None else '未提供'))
+    if patient.get('sex')!='男':pharmacist.append('懷孕狀態：'+{'unknown':'未確認','pregnant':'懷孕中','not_pregnant':'未懷孕','not_applicable':'不適用'}.get(patient.get('pregnancy'),'未確認')+'；孕週：'+(str(patient['pregnancy_weeks']) if patient.get('pregnancy_weeks') is not None else '未提供'))
     for check in assessment.get('population_checks',[]):
         if check['status'] in {'contraindicated','condition_unconfirmed'}:pharmacist.append(check['message']+' 原文：'+check['quote']+' ['+']['.join(check['source_ids'])+']')
     if patient.get('history'):pharmacist.append('病史原文：'+'；'.join(patient['history']))
@@ -304,3 +391,5 @@ class ReviewGate:
         report=json.loads(row['report']);text=report['patient']
         self.store.audit(p['id'],'patient_guide_delivered',row['actor'],{'review':rid,'version':p['version']})
         return '<!doctype html><html lang="zh-Hant"><meta charset="utf-8"><title>藥你安心｜用藥說明</title><style>body{font:22px/1.8 sans-serif;max-width:850px;margin:40px auto;padding:24px}pre{white-space:pre-wrap;font:inherit}small{font-size:15px}</style><h1>藥你安心｜用藥說明</h1><p>系統原始輸出：待藥師確認<br>本份已由藥師 '+html.escape(row['actor'])+' 覆核交付（'+html.escape(row['created'])+'）。</p><pre>'+html.escape(text)+'</pre><small>藥師確認摘要與處理紀錄保留於藥局本機。用藥版本 '+str(p['version'])+'</small></html>'
+
+# anthropometrics-summary-20261103
