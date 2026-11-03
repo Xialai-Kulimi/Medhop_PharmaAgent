@@ -263,7 +263,7 @@ async function showMedicationDetails(med){
         content.append(candidates);
       }
       const sources=el('details','reader-sources');sources.append(el('summary','','資料來源與仿單'));
-      for(const reference of detail.pharmacy_references){const a=el('a','source-chip',reference.title+' · 原藥事仿單');a.href=reference.url;a.target='_blank';a.rel='noopener';sources.append(a,el('p','reader-note',reference.note));}
+      for(const reference of detail.pharmacy_references){const a=el('a','source-chip',reference.title+' · '+(reference.label||'原藥事仿單'));if(reference.url)a.href=reference.url;a.target='_blank';a.rel='noopener';sources.append(a,el('p','reader-note',reference.note));}
       const source=el('a','source-chip','官方資料來源');source.href=detail.source_url;source.target='_blank';source.rel='noopener';sources.append(source);content.append(sources);
       content.scrollTop=0;
     }catch(error){if(token===request)content.replaceChildren(el('p','form-error',error.message));}

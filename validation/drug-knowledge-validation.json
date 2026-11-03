@@ -1,0 +1,15 @@
+{
+  "all_passed": true,
+  "checks": [
+    "license_numbers_map_to_getdrugdoc_codes",
+    "insert_xml_decodes_entities_base64_and_stops_at_content",
+    "chat_input_routes_licence_name_and_pasted_text",
+    "fetched_insert_is_staged_and_not_retrieved_before_confirmation",
+    "confirmed_insert_enters_retrieval_with_tfda_version_and_replaces_older_copy",
+    "pasted_text_is_retrievable_but_never_auto_classifies_a_pair",
+    "discard_audit_and_cross_origin_rules"
+  ],
+  "isolated_runtime": true,
+  "fixture": "synthetic drug names, TFDA GetDrugDoc format",
+  "clinical_decisions_automated": false
+}

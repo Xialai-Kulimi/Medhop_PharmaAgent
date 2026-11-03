@@ -13,6 +13,7 @@ from pair_integration import PairIntegration
 from population_checks import PopulationChecks
 from clinical_advice import ClinicalAdvice
 import record_tools
+import drug_knowledge
 
 class Input(BaseModel):
     model_config=ConfigDict(extra='forbid')
@@ -141,6 +142,14 @@ class MedicationSave(Input):
     dose:str=Field(default='',max_length=60,pattern=r'^[^\r\n]*$')
     frequency:str=Field(default='',max_length=160,pattern=r'^[^\r\n]*$')
     kind:Literal['current','new_order','reported']='current'
+# drug-knowledge-20261103: pharmacist-confirmed drug documents.
+class DrugMessage(Input):
+    message:str=Field(min_length=1,max_length=45000)
+    use_model:bool=True
+class DrugLicense(Input):license:str=Field(min_length=6,max_length=40)
+class DrugDocument(Input):
+    id:str=Field(pattern=r'^D-[0-9a-f]{10}$')
+    name:str|None=Field(default=None,max_length=80,pattern=r'^[^\r\n]*$')
 class MedicationStatus(Input):
     id:int
     status:Literal['active','stopped','removed']
@@ -265,6 +274,8 @@ async def lifespan(app):
     app.state.population=PopulationChecks(core.ROOT,core.CORPUS.pages)
     app.state.clinical_advice=ClinicalAdvice(core.ROOT,core.CORPUS.pages)
     app.state.label_interactions=LabelInteractions(core.ROOT,core.CORPUS.pages)
+    app.state.drug_library=drug_knowledge.DrugLibrary(core.STORE)
+    drug_knowledge.attach(core.CORPUS,app.state.drug_library.saved())
     yield
     for job in list(core.JOBS.values()):job.stop.set()
 
@@ -397,6 +408,29 @@ async def medication_status(body:MedicationStatus,request:Request):
     ensure_idle(request.state.sid)
     patient,message=await asyncio.to_thread(record_tools.set_medication_status,core.STORE,request.state.sid,body.id,body.status,body.note)
     return edited(request.state.sid,patient,'medication_status_changed',{'medication':body.id,'status':body.status},message+'。')
+
+def drug_actor(sid):return 'session:'+hashlib.sha256(sid.encode()).hexdigest()[:12]
+@app.post('/api/drug-knowledge/run')
+async def drug_knowledge_run(body:DrugMessage,request:Request):
+    model=(core.MODEL_URL,core.MODEL) if body.use_model and (await asyncio.to_thread(core.model_status))['available'] else None
+    return await asyncio.to_thread(drug_knowledge.run_request,body.message,app.state.drug_library,app.state.catalog,drug_actor(request.state.sid),model,core.MODEL_LOCK)
+@app.post('/api/drug-knowledge/fetch')
+async def drug_knowledge_fetch(body:DrugLicense,request:Request):
+    document=await asyncio.to_thread(drug_knowledge.fetch_insert,body.license)
+    staged=app.state.drug_library.stage(document,drug_actor(request.state.sid),body.license)
+    return {'document':staged,'steps':[{'title':'取得食藥署電子仿單','by':'fetch_tfda_insert','result':f"{staged['name']} · 版本 {staged['version']} · 核准日 {staged['approved']}",'state':'done'}],'message':f"已暫存「{staged['name']}」的食藥署電子仿單，請核對後按「寫入藥品資料庫」。寫入前不會用於任何檢查。"}
+@app.post('/api/drug-knowledge/save')
+async def drug_knowledge_save(body:DrugDocument,request:Request):
+    library=app.state.drug_library
+    document,replaced=library.save(body.id,drug_actor(request.state.sid),body.name)
+    pages=await asyncio.to_thread(drug_knowledge.attach,core.CORPUS,library.saved())
+    core.STORE.audit(None,'drug_document_saved',request.state.sid,{'document':document['id'],'kind':document['kind'],'name':document['name'],'license':document['license'],'version':document['version'],'sha256':document['sha256'],'superseded':replaced})
+    return {'document':{**document,'sections':[]},'retrieval_pages':pages,'message':f"已將「{document['name']}」寫入藥品資料庫並加入仿單檢索"+('，取代同一許可證的舊版本' if replaced else '')+'。既有檢查結果不會自動改寫，請重新檢查。'}
+@app.post('/api/drug-knowledge/discard')
+async def drug_knowledge_discard(body:DrugDocument,request:Request):
+    app.state.drug_library.discard(body.id);return {'message':'已略過，這份資料不會寫入。'}
+@app.get('/api/drug-knowledge')
+async def drug_knowledge_list():return {'documents':app.state.drug_library.saved(False)}
 
 def start_job(sid,job):
     with core.JOB_LOCK:
@@ -589,7 +623,7 @@ async def medhop_coverage(q:str=''):
 @app.api_route('/{name:path}',methods=['GET','HEAD'])
 async def static(name:str=''):
     name=name or 'index.html'
-    if name not in {'index.html','app.js','workflow.js','compliance.js','app.css','reference.css','logo.png','workspace.js','workspace.css','record-tools.js','record-tools.css'}:return JSONResponse({'error':'找不到頁面'},status_code=404)
+    if name not in {'index.html','app.js','workflow.js','compliance.js','app.css','reference.css','logo.png','workspace.js','workspace.css','record-tools.js','record-tools.css','drug-knowledge.js','drug-knowledge.css'}:return JSONResponse({'error':'找不到頁面'},status_code=404)
     return FileResponse(core.ROOT/'static'/name)
 
 

@@ -15,6 +15,10 @@ RUNTIME.mkdir(parents=True,exist_ok=True)
 DB = RUNTIME / 'records.sqlite3'
 MODEL_URL = 'http://127.0.0.1:13305/api/v1'
 MODEL = 'qwen3-it-4b-FLM'
+# Remote OpenAI-compatible endpoints need a key; the local server ignores it.
+MODEL_KEY = os.environ.get('MODEL_API_KEY', 'local-only')
+def model_headers():
+    return {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + MODEL_KEY}
 JOBS, JOB_LOCK = {}, threading.Lock()
 MODEL_LOCK = threading.Lock()
 STORE = None
@@ -173,7 +177,7 @@ CORPUS = None
 
 def model_status():
     try:
-        with urllib.request.urlopen(MODEL_URL + '/models', timeout=3) as response:
+        with urllib.request.urlopen(urllib.request.Request(MODEL_URL + '/models', headers=model_headers()), timeout=3) as response:
             models = json.load(response).get('data', [])
         return {'available': any(m.get('id') == MODEL for m in models), 'name': MODEL}
     except Exception:
@@ -282,7 +286,7 @@ class Job:
             content = f'角色：{self.role}\n已確認的病歷：\n{self.record["text"] or "未提供"}\n問題：{self.question}\n仿單字面藥名覆蓋：{json.dumps(self.coverage,ensure_ascii=False)}\n檢索原文：\n{evidence}\n/no_think'
             data = {'model': MODEL, 'messages':[{'role':'system','content':system},{'role':'user','content':content}],
                     'temperature':0, 'max_tokens':1600, 'stream':True, 'chat_template_kwargs':{'enable_thinking':False}}
-            request = urllib.request.Request(MODEL_URL+'/chat/completions', data=json.dumps(data).encode(), headers={'Content-Type':'application/json'})
+            request = urllib.request.Request(MODEL_URL+'/chat/completions', data=json.dumps(data).encode(), headers=model_headers())
             with urllib.request.urlopen(request, timeout=120) as response:
                 self.response = response
                 for line in response:

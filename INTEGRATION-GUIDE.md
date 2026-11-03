@@ -101,3 +101,18 @@ OCR 仿單可能含標題亂碼、表格錯位或藥名與數字誤辨。引用�
 右側病歷可直接修改：姓名與基本資料（「編輯基本資料」）、病史與過敏史（「編輯病史與過敏」，儲存後取代目前顯示的病史）、每項用藥的藥名、規格、頻次與類別（「修改」），也可標記停用、恢復使用、刪除輸入錯誤的藥品，或「＋ 新增用藥」。每次修改都保留原始輸入列，在異動紀錄寫下修改前後，並提高病歷版本；舊版檢查結果不再適用，對話區會提示依新版本重新檢查。藥名變更時，一併清除原藥名的產品與 MedHop 識別碼核對（清除內容記入異動紀錄）。API：`GET /api/patients/{id}/export`、`POST /api/patients/import`、`POST /api/patients/edit`、`POST /api/medications/save`、`POST /api/medications/status`；驗證見 `validation/test_record_tools.py`。
 
 藥物說明的「外部藥品資料庫」列出食藥署藥品仿單查詢平台（已核對產品時直接開啟該許可證的仿單；每個產品候選也附各自的仿單連結）、UpToDate（以藥名搜尋）、Micromedex 與 OpenEvidence。UpToDate、Micromedex 需機構訂閱帳號；外部網站內容不會自動寫入本系統。
+
+
+## 藥品資料庫：食藥署電子仿單與藥師貼上的資料
+
+在左側對話框可以直接更新藥品資料，不需另開頁面：
+
+- 輸入許可證字號（例如「衛署藥輸字第024959號」）：向食藥署藥品仿單查詢平台的 GetDrugDoc 介面取得該許可證的電子仿單，保留版本、核准日與原文段落。
+- 輸入「查 Clopidogrel 的官方仿單」：在本機的食藥署未註銷許可證快照找候選產品，由藥師選擇實際產品後再取得仿單；系統與模型都不會替藥師挑選產品。
+- 直接貼上仿單或藥品說明內容：依段落標題（適應症、用法用量、交互作用等）分段，原文照存不改寫，藥師可修改藥名。
+
+有模型時，由藥品資料代理人（AutoGen）判斷輸入並呼叫 `search_tfda_license`、`fetch_tfda_insert` 或 `stage_pasted_document` 其中一個工具；沒有模型或模型未呼叫工具時，改用同一組工具依規則處理，步驟中會標示實際方式。代理人傳入的許可證字號必須出現在藥師輸入的文字中。工具只會「暫存」資料：對話中出現預覽卡，標示「食藥署電子仿單 · 版本 · 核准日」或「藥師貼上 · 未經官方核對」。藥師按「寫入藥品資料庫」後才存入本機資料庫（`drug_documents` 資料表）、寫入稽核紀錄，並立即加入仿單 BM25 檢索；按「略過」則不寫入。同一許可證寫入較新的仿單時，舊版本保留為 superseded，不再參與檢索。原 100 份 PDF 與其索引不會被修改。
+
+檢索與配對時，這些來源以自己的名稱、版本與食藥署網站連結呈現。食藥署仿單與原 PDF 一樣可依直接併用描述分類；藥師貼上的內容只列為待藥師判讀的來源，不會自動判定交互作用。寫入新資料不會改寫既有檢查結果，請重新檢查。API：`POST /api/drug-knowledge/run`、`POST /api/drug-knowledge/fetch`、`POST /api/drug-knowledge/save`、`POST /api/drug-knowledge/discard`、`GET /api/drug-knowledge`；驗證見 `validation/test_drug_knowledge.py`（使用虛構藥名的合成仿單，格式依 GetDrugDoc 回應）。
+
+食藥署用戶端依公開的 GetDrugDoc 規格撰寫；許可證字號前綴與 8 碼代碼對照表、VALUE 欄位的 HTML 與 base64 解碼方式，參考 shin13/opentaimed（MIT，授權文字見 `licenses/opentaimed-LICENSE`）。食藥署內容僅供藥師核對使用，仍以食藥署網站與實際產品仿單為準。

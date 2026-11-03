@@ -4,8 +4,8 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>藥你安心：藥事安全Agent</title>
 <link rel="icon" href="data:,">
-<link rel="stylesheet" href="/reference.css?v=20261101-compact-paths-1"><link rel="stylesheet" href="/app.css?v=20261101-compact-paths-1"><link rel="stylesheet" href="/workspace.css?v=20261101-compact-paths-1"><link rel="stylesheet" href="/record-tools.css?v=20261103-record-tools-1">
-<script src="/workflow.js?v=20261101-compact-paths-1" defer></script><script src="/app.js?v=20261101-compact-paths-1" defer></script><script src="/compliance.js?v=20261101-compact-paths-1" defer></script><script src="/workspace.js?v=20261103-record-tools-1" defer></script><script src="/record-tools.js?v=20261103-record-tools-1" defer></script>
+<link rel="stylesheet" href="/reference.css?v=20261101-compact-paths-1"><link rel="stylesheet" href="/app.css?v=20261101-compact-paths-1"><link rel="stylesheet" href="/workspace.css?v=20261101-compact-paths-1"><link rel="stylesheet" href="/record-tools.css?v=20261103-record-tools-1"><link rel="stylesheet" href="/drug-knowledge.css?v=20261103-drug-knowledge-2">
+<script src="/workflow.js?v=20261101-compact-paths-1" defer></script><script src="/app.js?v=20261103-drug-knowledge-1" defer></script><script src="/compliance.js?v=20261101-compact-paths-1" defer></script><script src="/workspace.js?v=20261103-drug-knowledge-1" defer></script><script src="/record-tools.js?v=20261103-record-tools-1" defer></script><script src="/drug-knowledge.js?v=20261103-drug-knowledge-2" defer></script>
 </head>
 <body>
 <div class="app">
@@ -16,7 +16,7 @@
     <section class="chat" aria-label="對話與檢索">
       <div class="log" id="log"><div class="log-inner" id="logInner" role="log" aria-live="polite"></div></div>
       <form class="composer" id="composer" autocomplete="off">
-        <div class="field"><textarea id="input" rows="2" placeholder="描述病人狀況或用藥情形" aria-label="訊息" maxlength="12000"></textarea><button class="send" id="send" type="submit" aria-label="送出" disabled><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>
+        <div class="field"><textarea id="input" rows="2" placeholder="描述病人狀況或用藥情形；也可貼上仿單內容或輸入許可證字號更新藥品資料" aria-label="訊息" maxlength="45000"></textarea><button class="send" id="send" type="submit" aria-label="送出" disabled><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>
         <div class="composer-foot"><span>Enter 送出 · Shift + Enter 換行</span></div>
       </form>
     </section>

@@ -415,9 +415,14 @@ def directly_paired(quote,names):
                      r'(?:當|在)與?[ ]*'+first+r'.{0,8}(?:併用|合併|併服|合用).{0,14}'+second]
     return any(re.search(pattern,quote,re.I) for pattern in patterns)
 
+# drug-knowledge-20261103: pages from pharmacist-saved drug documents override the PDF labels;
+# pasted text is never used to classify a pair automatically.
+SOURCE_LABEL_KEYS=('kind','title','origin','url','unverified','document')
+def source_labels(page):return {k:page[k] for k in SOURCE_LABEL_KEYS if k in page}
+
 def classify_literal(pair,sources):
     for source in sources:
-        if source['id'] not in pair['source_ids'] or source.get('ocr'):continue
+        if source['id'] not in pair['source_ids'] or source.get('ocr') or source.get('unverified'):continue
         for sentence in re.split(r'(?<=[。；;])\s*',source['text']):
             if len(sentence)>550 or not all(literal_positions(sentence,n) for n in pair['drugs']) or not directly_paired(sentence,pair['drugs']):continue
             status=None
@@ -455,7 +460,7 @@ def pair_evidence(patient,pages):
             if signature not in source_map:
                 ident='P'+str(len(sources)+1)
                 source_map[signature]=ident
-                sources.append({'id':ident,'kind':'藥事 Agent 仿單'+(' · OCR' if page.get('ocr') else ''),'title':f"{page['file']} · 第 {page['page']} 頁",'file':page['file'],'page':page['page'],'text':quote,'full_text':page['text'],'ocr':bool(page.get('ocr')),'origin':'moda-agent/data/drug_info/'+page['file'],'url':'/documents/'+page['file']+'#page='+str(page['page'])})
+                sources.append({'id':ident,'kind':'藥事 Agent 仿單'+(' · OCR' if page.get('ocr') else ''),'title':f"{page['file']} · 第 {page['page']} 頁",'file':page['file'],'page':page['page'],'text':quote,'full_text':page['text'],'ocr':bool(page.get('ocr')),'origin':'moda-agent/data/drug_info/'+page['file'],'url':'/documents/'+page['file']+'#page='+str(page['page']),**source_labels(page)})
             refs.append(source_map[signature])
             if len(refs)==2:break
         pair={'id':f'pair-{len(pairs)+1}','drugs':[a,b],'status':'review' if refs else 'insufficient','source_ids':refs,'quote':'','action':'review_dispensing' if refs else 'supplement_sources'}
