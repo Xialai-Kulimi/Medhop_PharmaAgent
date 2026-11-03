@@ -9,6 +9,8 @@
 - 檢索藥品成分、仿單與交互作用相關證據。
 - 顯示禁忌與併用風險提醒、MedHop 研究路徑。
 - 保存檢查結果、藥師處置與用藥說明。
+- 在右側病歷直接編輯基本資料、病史、過敏史與用藥，並以 JSON 匯出或匯入個案。
+- 藥物說明連到食藥署仿單、UpToDate、Micromedex 與 OpenEvidence。
 
 ## 主要檔案
 
@@ -17,6 +19,7 @@
 | `static/` | 網頁介面 |
 | `asgi.py` | 後端 API |
 | `workflow.py` | 病歷與用藥處理 |
+| `record_tools.py` | 病歷 JSON 匯入匯出與藥師編輯 |
 | `pharmacy_rag.py` | 仿單 RAG 檢索 |
 | `label_interactions.py` | 已核驗的併用警示 |
 | `population_checks.py` | 病人條件與禁忌檢查 |

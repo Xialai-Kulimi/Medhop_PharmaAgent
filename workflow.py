@@ -80,6 +80,18 @@ def narrative_history(text):
         if fact and fact not in facts:facts.append(fact)
     return facts
 
+# record-edit-20261103: a pharmacist edit replaces the derived history; edit logs are not re-read as narrative.
+HISTORY_EDIT_SOURCES={'藥師編輯病史與過敏史','匯入病史與過敏史'}
+RECORD_EDIT_SOURCES={'藥師編輯用藥','藥師新增用藥','藥師變更用藥狀態','藥師更正姓名','由 JSON 檔匯入'}
+def record_history(events):
+    facts=[]
+    for event in events:
+        if event['source'] in HISTORY_EDIT_SOURCES:
+            line=re.search(r'^病史[：:](.*)$',event['body'],re.M)
+            if line:facts=[fact.strip() for fact in re.split(r'[；;]',line[1]) if fact.strip() and fact.strip()!='未記錄']
+        elif event['source'] not in RECORD_EDIT_SOURCES:facts.extend(narrative_history(event['body']))
+    return list(dict.fromkeys(facts))
+
 FREQ=re.compile(r'(?:偏頭痛|頭痛|疼痛|症狀|痛|發作)(?:發作|出現|加劇)?(?:的時候|時)(?:才|再)?(?:有需要|需要|必要時|需要時)?(?:服用|使用|吃)|(?:有需要|需要|必要)才(?:服用|使用|吃)|按需(?:服用|使用|吃)?|需要時(?:服用)?|必要時(?:服用)?|持續貼用|貼片每\d+小時更換一次|\b(?:QD|BID|TID|QID|HS|OHS|PRN|Q\d+H|AC|PC)\b|(?:每[日天週周晚]|一天|一日)[^，,。；;\n]{0,16}',re.I)
 ATTRIBUTE_NAMES={'劑量','用量','每次用量','服用劑量','每日劑量','頻次','服用次數'}
 DOSE_VALUE=r'\d+(?:\.\d+)?(?:/\d+(?:\.\d+)?)?\s*(?:mcg|mg|mL|毫克|微克|公克|g\b|錠|顆)(?:\s*/\s*(?:hour|hr|h|小時))?'
@@ -274,10 +286,10 @@ class PatientStore:
             row=db.execute('SELECT * FROM patients WHERE id=?',(pid,)).fetchone()
             if not row:return None
             events=[dict(r) for r in db.execute('SELECT * FROM patient_events WHERE patient_id=? ORDER BY id',(pid,))]
-            meds=[dict(r) for r in db.execute("SELECT * FROM patient_meds WHERE patient_id=? ORDER BY id",(pid,))]
+            meds=[dict(r) for r in db.execute("SELECT * FROM patient_meds WHERE patient_id=? AND status!='removed' ORDER BY id",(pid,))]
             reviews=[dict(r) for r in db.execute('SELECT id,version,created FROM patient_reviews WHERE patient_id=? ORDER BY created DESC,rowid DESC',(pid,))]
             actions=[dict(r) for r in db.execute('SELECT * FROM patient_actions WHERE patient_id=? ORDER BY id DESC',(pid,))]
-        return {**dict(row),'history':list(dict.fromkeys(fact for event in events for fact in narrative_history(event['body']))),'events':events,'medications':meds,'reviews':reviews,'actions':actions}
+        return {**dict(row),'history':record_history(events),'events':events,'medications':meds,'reviews':reviews,'actions':actions}
     def select(self,session,pid):
         patient=self.get(pid)
         if not patient:raise ValueError('找不到這筆病歷')

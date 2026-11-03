@@ -16,7 +16,7 @@ function patientInterventions(patient){return (patient.interventions||patient.ac
 function medRecordRows(meds){
   const rows=el('div','record-med-rows');
   for(const med of meds){
-    const row=el('div','record-med-row'+(med.status==='stopped'?' is-stopped':''));
+    const row=el('div','record-med-row'+(med.status==='stopped'?' is-stopped':''));row.dataset.medId=med.id;
     row.append(el('b','record-med-name',med.name),el('span','cell-dim record-med-dose',med.dose||'規格未提供'),el('span','cell-dim record-med-frequency',med.frequency||'頻次未提供'));
     const status=med.status==='stopped'?(confirmedReplacementNames(currentPatient).has(med.name.normalize('NFKC').trim().toLowerCase())?'已更換':'已停用'):med.confirmation==='confirmed'?'已確認':med.kind==='new_order'?'待藥師確認':med.kind==='reported'||med.acquisition==='self_purchased'?'病人自述':'';
     if(status)row.append(el('span','status-tag'+(med.confirmation==='confirmed'?' confirmed':''),status));
@@ -44,8 +44,8 @@ function patientTimeline(patient,interventions){
   }
   for(const review of [...(patient.reviews||[])].reverse())items.push({created:review.created,title:'用藥檢查',actor:'系統檢索',detail:'用藥版本 '+review.version,review:review.id,key:'review-'+review.id});
   for(const query of [...(patient.queries||[])].reverse())items.push({created:query.created,title:'研究資料查詢',actor:'系統檢索',detail:'用藥版本 '+query.version,query:query.id,key:'query-'+query.id});
-  const represented=new Set(['patient_created','patient_updated','patient_found','disposition','confirmed_prescription_change','review_completed','research_query_saved']);
-  const names={medication_classification:'藥品分類核對',medication_identity:'研究藥名核對',report_draft_saved:'既有說明草稿儲存',report_approved:'既有交付覆核'};
+  const represented=new Set(['patient_created','patient_updated','patient_found','disposition','confirmed_prescription_change','review_completed','research_query_saved','patient_imported','patient_record_edited','medication_edited','medication_status_changed']);
+  const names={medication_classification:'藥品分類核對',medication_identity:'研究藥名核對',report_draft_saved:'既有說明草稿儲存',report_approved:'既有交付覆核',patient_exported:'匯出病歷 JSON'};
   for(const audit of patient.audit_events||[]){if(represented.has(audit.event))continue;items.push({created:audit.created,title:names[audit.event]||'操作紀錄：'+audit.event,actor:'操作紀錄',detail:JSON.stringify(audit.detail||{},null,2),key:'audit-'+audit.id});}
   return items.sort((a,b)=>new Date(a.created)-new Date(b.created));
 }
@@ -238,6 +238,7 @@ async function showMedicationDetails(med){
     if(product.dosage_available)card.append(fullText('服用次數與劑量原文',product['用法用量']));else fact(card,'官方用法用量',product['用法用量']||'來源未提供；需核對實際仿單');
     if(product.source_availability)card.append(catalogSourceAvailability(product));
     if(!confirmed)card.append(button('核對實際產品',()=>openMedicationClassification({...item,license:product['許可證字號']}),'source-chip'));
+    if(product['許可證字號'])card.append(tfdaInsertLink(product['許可證字號']));
     return card;
   }
   async function load(index){
@@ -252,7 +253,7 @@ async function showMedicationDetails(med){
       const ingredient=detail.ingredient_lookup||{};fact(summary,'成分（現有資料庫）',ingredient.ingredients?.length?ingredient.ingredients.join(' ＋ '):ingredient.message||'現有資料不足，待核對');if(ingredient.source_field)summary.append(el('p','reader-note',`來源：${ingredient.source_file} · ${ingredient.source_field} · 快照 ${ingredient.snapshot_date}`));
       const population=detail.population_checks||[];fact(summary,'禁止使用對象／禁忌',population.length?population.map(c=>c.quote).join('；'):'現有來源未提供禁忌欄位，需核對實際產品仿單。');for(const check of population.filter(c=>c.status==='contraindicated'))summary.prepend(populationNotice(check,detail.population_sources||[]));
       fact(summary,'實際產品',detail.product?`${detail.product['中文品名']} · ${detail.product['許可證字號']}`:'尚未核對品牌與許可證');
-      content.replaceChildren(title,summary,el('p','reader-note','以上用量為藥師輸入紀錄。產品候選的用法不會自動套用為病人處方。'));
+      content.replaceChildren(title,summary,el('p','reader-note','以上用量為藥師輸入紀錄。產品候選的用法不會自動套用為病人處方。'),externalDrugLinks(detail));
       if(detail.pharmacy_rag){const rag=el('details','product-source-list');rag.append(el('summary','',`仿單 RAG 檢索（BM25 · ${detail.pharmacy_rag.sources.length} 筆）`));const map=new Map(detail.pharmacy_rag.sources.map(s=>[s.id,s]));sourceButtons(detail.pharmacy_rag.source_ids,map,rag);if(!detail.pharmacy_rag.sources.length)rag.append(el('p','',detail.pharmacy_rag.scope));content.append(rag);}
       if(detail.product){const section=el('section','confirmed-product');section.append(el('h4','','已核對產品資料'),productCard(detail.product,item,true));content.append(section);}
       else {

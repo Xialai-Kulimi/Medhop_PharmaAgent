@@ -1,0 +1,12 @@
+{
+  "all_passed": true,
+  "checks": [
+    "history_edit_replaces_derived_history_and_invalidates_old_review",
+    "medication_edit_add_stop_remove_logged_with_original_rows_kept",
+    "rename_updates_encrypted_identity_lookup",
+    "export_import_round_trip_creates_new_patient_without_overwrite",
+    "foreign_files_and_cross_origin_writes_rejected"
+  ],
+  "isolated_runtime": true,
+  "clinical_decisions_automated": false
+}
