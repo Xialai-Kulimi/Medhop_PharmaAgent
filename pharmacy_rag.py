@@ -1,6 +1,6 @@
 """BM25 retrieval of original pharmacy label chunks, with auditable RAG context."""
 import re,hashlib
-from workflow import canonical,literal_positions
+from workflow import canonical,literal_positions,source_labels
 
 def searchable(text):
     # Deterministic Chinese bigrams alongside native Latin identifiers; no LLM aliases.
@@ -56,7 +56,7 @@ class PharmacyRAG:
                 sid=seen.get(sig)
                 if sid is None:
                     sid='R'+str(len(sources)+1);seen[sig]=sid
-                    sources.append({'id':sid,'kind':'藥事仿單 RAG · BM25'+(' · OCR，需核對 PDF' if chunk.get('ocr') else ''),'title':chunk['file']+' · 第 '+str(chunk['page'])+' 頁','file':chunk['file'],'page':chunk['page'],'text':chunk['text'],'full_text':self.page_map[signature]['text'],'ocr':bool(chunk.get('ocr')),'origin':'moda-agent/data/drug_info/'+chunk['file'],'url':'/documents/'+chunk['file']+'#page='+str(chunk['page']),'retrieval':{'method':'BM25','chunk_offset':chunk['offset'],'score':round(scores[i],6),'sha256':hashlib.sha256(chunk['text'].encode()).hexdigest()}})
+                    sources.append({'id':sid,'kind':'藥事仿單 RAG · BM25'+(' · OCR，需核對 PDF' if chunk.get('ocr') else ''),'title':chunk['file']+' · 第 '+str(chunk['page'])+' 頁','file':chunk['file'],'page':chunk['page'],'text':chunk['text'],'full_text':self.page_map[signature]['text'],'ocr':bool(chunk.get('ocr')),'origin':'moda-agent/data/drug_info/'+chunk['file'],'url':'/documents/'+chunk['file']+'#page='+str(chunk['page']),'retrieval':{'method':'BM25','chunk_offset':chunk['offset'],'score':round(scores[i],6),'sha256':hashlib.sha256(chunk['text'].encode()).hexdigest()},**source_labels(chunk)})
                 hits.append(sid)
                 if len(hits)>=8:break
             queries.append({'medication_id':med.get('id'),'drug':med['name'],'query':query,'document_scope':files,'source_ids':hits,'status':'retrieved' if hits else 'insufficient','ingredients_from_database':components})

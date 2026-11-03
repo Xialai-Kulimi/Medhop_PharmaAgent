@@ -1,0 +1,33 @@
+/* record-tools-20261103: JSON exchange, record edits and external drug references. */
+.record-exchange{display:flex;align-items:center;gap:16px}
+.record-exchange .text-btn{font-size:12px;white-space:nowrap}
+.record-exchange .text-btn:disabled{color:#9aabb9;cursor:default;text-decoration:none}
+.rec-name .record-edit-link,.rec-sec h3 .record-edit-link{font-size:11px;font-weight:400;padding:0;margin-left:auto;line-height:1.8}
+.rec-sec>h3:has(.record-edit-link){display:flex;align-items:baseline}
+#recScroll .record-med-row.is-editable{position:relative;padding-right:40px}
+#recScroll .record-med-edit{position:absolute;top:12px;right:0;padding:0;font-size:11px;line-height:1.8}
+#recScroll .record-med-row.is-editable .record-med-frequency{white-space:normal;overflow-wrap:anywhere}
+.record-edit-log{display:flex;flex-direction:column;gap:2px}
+.record-edit-log p{margin:0}
+.record-edit-log .record-edit-prompt{margin-top:6px}
+.record-add-med{padding-top:10px}
+.record-add-med .text-btn{font-size:12px}
+.record-editor{width:min(560px,calc(100vw - 32px))}
+.record-editor form{display:flex;flex-direction:column;gap:14px}
+.record-editor .dialog-head{margin-bottom:0}
+.record-editor .muted{margin:0}
+.editor-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.editor-field{display:flex;flex-direction:column;align-items:stretch;gap:6px;white-space:normal}
+.editor-field input,.editor-field textarea,.editor-field select{width:100%;min-width:0;font:inherit;font-size:13px;line-height:1.7;color:var(--ink);background:#fff;border:1px solid #c1d8e9;border-radius:6px;padding:8px 10px}
+.editor-field input:disabled{background:#f4f7fa;color:#9aabb9}
+.editor-field textarea{resize:vertical}
+.record-editor .dialog-actions{margin-top:4px;flex-wrap:wrap}
+.record-editor .form-error{margin:0}
+.record-editor .form-error:empty{display:none}
+.record-editor .btn-primary{background:#267bb4;border-color:#267bb4;color:#fff}
+.editor-danger{margin-right:auto;color:var(--alert)}
+.external-drug-links{margin:0 0 18px}
+.external-drug-links h4{font-size:13px;color:#426d8c;margin:0 0 4px}
+.external-drug-links .reader-note{margin:4px 0 0}
+.product-reference>.source-chip{margin:8px 8px 0 0}
+@media(max-width:600px){.editor-grid{grid-template-columns:minmax(0,1fr)}.record-exchange{gap:12px}}

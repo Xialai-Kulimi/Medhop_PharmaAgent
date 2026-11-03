@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 驗證用合成仿單：藥名與內容皆為虛構，格式依食藥署 GetDrugDoc 回應。 -->
+<ROOTDOCUMENT>
+  <DOCUMENT>
+    <INFO><SNO>衛署藥輸字第000001號</SNO><CNAME>驗證用合成仿單</CNAME><ENAME>Zorbatide synthetic test insert</ENAME><DTYPE>須由醫師處方使用</DTYPE><VERSION>2</VERSION><VDATE>2026-01-05</VDATE></INFO>
+    <CHARACT></CHARACT>
+    <WARNING><VALUE type="text">&lt;p&gt;驗證用警語&lt;/p&gt;</VALUE></WARNING>
+    <CONTENT>
+      <SECTION LEVEL="1" ID="1"><NO>1</NO><TITLE>性狀</TITLE>
+        <SECTION LEVEL="2" ID="1.1"><NO>1.1</NO><TITLE>有效成分及含量</TITLE><VALUE type="text">&lt;p&gt;Zorbatide&amp;nbsp;10 mg&lt;/p&gt;</VALUE></SECTION>
+      </SECTION>
+      <SECTION LEVEL="1" ID="7"><NO>7</NO><TITLE>交互作用</TITLE><VALUE type="text" encode="1">PHA+Wm9yYmF0aWRl6IiHUXVlbG1hem9sZeS9teeUqOaZgu+8jOaHiemBv+WFjeS9teeUqOOAgjwvcD48dWw+PGxpPuWFtuS7liZhbXA76Kqq5piOPC9saT48L3VsPg==</VALUE><VALUE type="image" encode="1">iVBORw0KGgo=</VALUE></SECTION>
+    </CONTENT>
+    <FILES><FILE><NAME>truncated-after-content

@@ -1,5 +1,6 @@
 """Bounded pair-by-pair requests; retains original quote validation and HTTP errors."""
 import json
+import os
 import re
 import urllib.request
 import urllib.error
@@ -65,7 +66,7 @@ def classify(assessment,url,model,stop):
         payload={'model':model,'messages':messages,'temperature':0,'max_tokens':MAX_OUTPUT,
                  'stream':False,'chat_template_kwargs':{'enable_thinking':False}}
         req=urllib.request.Request(url.rstrip('/')+'/chat/completions',data=json.dumps(payload).encode(),
-                                   headers={'Content-Type':'application/json'})
+                                   headers={'Content-Type':'application/json','Authorization':'Bearer '+os.environ.get('MODEL_API_KEY','local-only')})
         try:
             with urllib.request.urlopen(req,timeout=120) as response:
                 output=json.load(response)['choices'][0]['message']['content']

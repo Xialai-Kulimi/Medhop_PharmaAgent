@@ -1,0 +1,20 @@
+/* drug-knowledge-20261103: staged drug document preview in the chat. */
+.drug-preview{border:1px solid #c1d8e9;border-radius:12px;padding:16px 18px;background:#fff;display:flex;flex-direction:column;gap:8px}
+.drug-preview.is-pasted{border-style:dashed}
+.drug-preview h3{font-size:14px;margin:0;color:#283e52}
+.drug-preview p{margin:0}
+.drug-source{font-size:12px;color:#34709c}
+.drug-preview.is-pasted .drug-source{color:#786332}
+.drug-name-line{font-size:14px;color:#253e55;overflow-wrap:anywhere}
+.drug-warning{font-size:12px;color:#a73930;white-space:pre-wrap;border-left:2px solid #e0b4ae;padding-left:10px}
+.drug-sections{border-top:1px solid #dce7f0;margin-top:4px}
+.drug-sections>summary{cursor:pointer;padding:8px 0;font-size:12px;color:#2777ad}
+.drug-section{border-bottom:1px solid #dce7f0;font-size:12px}
+.drug-section>summary{cursor:pointer;padding:7px 0;color:#496f8d}
+.drug-section.level-2>summary{padding-left:14px}
+.drug-section.level-3>summary{padding-left:28px}
+.drug-section-text{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.85;color:#4a6175;padding:0 0 10px;max-height:320px;overflow:auto}
+.drug-note{font-size:11px}
+.drug-preview .recommendation-actions{margin:8px 0 0}
+.drug-saved{font-size:13px;color:#1e6a9e}
+.drug-candidates .btn{text-align:left;white-space:normal;overflow-wrap:anywhere}

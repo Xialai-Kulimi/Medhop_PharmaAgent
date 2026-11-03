@@ -40,7 +40,7 @@ async def run_agents(patient,assessment,corpus,model_url,model,emit,stop):
     from autogen_core import CancellationToken
     spec=importlib.util.spec_from_file_location('original_moda_agent',ROOT/'upstream'/'moda-agent'/'agent.py')
     upstream=importlib.util.module_from_spec(spec);spec.loader.exec_module(upstream)
-    client=OpenAIChatCompletionClient(model=model,base_url=model_url,api_key='local-only',model_info={'vision':False,'function_calling':True,'json_output':False,'family':'unknown','structured_output':False},temperature=0,max_tokens=650,timeout=60)
+    client=OpenAIChatCompletionClient(model=model,base_url=model_url,api_key=os.environ.get('MODEL_API_KEY','local-only'),model_info={'vision':False,'function_calling':True,'json_output':False,'family':'unknown','structured_output':False},temperature=0,max_tokens=650,timeout=60)
     trace=[]; token=CancellationToken();finished=asyncio.Event()
     def event(tool,result):
         trace.append({'tool':tool,'result':result});emit(tool,result)

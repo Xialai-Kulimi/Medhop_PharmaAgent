@@ -12,6 +12,8 @@ from agent_service import run_agents, graphrag
 from pair_integration import PairIntegration
 from population_checks import PopulationChecks
 from clinical_advice import ClinicalAdvice
+import record_tools
+import drug_knowledge
 
 class Input(BaseModel):
     model_config=ConfigDict(extra='forbid')
@@ -75,6 +77,83 @@ class Record(Input):
     text:str=Field(min_length=1,max_length=12000)
     source:str=Field(default='使用者輸入',max_length=1000)
 class Note(Input):job:str
+# record-tools-20261103: the exchange file is lenient about extra keys so other systems can add their own.
+class FileItem(BaseModel):
+    model_config=ConfigDict(extra='ignore')
+class ExchangePatient(FileItem):
+    id:str=Field(default='',max_length=80)
+    name:str=Field(default='',max_length=80,pattern=r'^[^\r\n]*$')
+    age:int|None=Field(default=None,ge=0,le=129)
+    sex:Literal['男','女','其他','未確認','']=''
+    pregnancy:Literal['unknown','pregnant','not_pregnant','not_applicable']='unknown'
+    pregnancy_weeks:int|None=Field(default=None,ge=0,le=45)
+    lactation:Literal['unknown','breastfeeding','not_breastfeeding','not_applicable']='unknown'
+    height_cm:float|None=Field(default=None,gt=0,le=300)
+    weight_kg:float|None=Field(default=None,gt=0,le=600)
+    created:str=Field(default='',max_length=40)
+class ExchangeMedication(FileItem):
+    name:str=Field(min_length=1,max_length=100,pattern=r'^[^\r\n]*$')
+    dose:str=Field(default='',max_length=60,pattern=r'^[^\r\n]*$')
+    frequency:str=Field(default='',max_length=160,pattern=r'^[^\r\n]*$')
+    kind:Literal['current','new_order','reported']='current'
+    status:Literal['active','stopped']='active'
+    confirmation:Literal['pending','confirmed']='pending'
+    acquisition:Literal['prescribed','self_purchased','unknown']='unknown'
+    classification:Literal['rx','otc','unknown']='unknown'
+    license:str=Field(default='',max_length=100)
+    text:str=Field(default='',max_length=4000)
+    created:str=Field(default='',max_length=40)
+class ExchangeEvent(FileItem):
+    source:str=Field(default='',max_length=1000)
+    body:str=Field(min_length=1,max_length=12000)
+    created:str=Field(default='',max_length=40)
+class ExchangeIntervention(FileItem):
+    action:Literal['contact_prescriber','adjusted','reviewed']='reviewed'
+    note:str=Field(min_length=1,max_length=5000)
+    created:str=Field(default='',max_length=40)
+class ExchangeRecord(FileItem):
+    format:Literal['medhop-patient-record']
+    format_version:Literal[1]
+    exported_at:str=Field(default='',max_length=40)
+    source_system:str=Field(default='',max_length=200)
+    patient:ExchangePatient
+    history:list[str]|None=Field(default=None,max_length=100)
+    allergies:str|None=Field(default=None,max_length=3000)
+    medications:list[ExchangeMedication]=Field(default_factory=list,max_length=200)
+    events:list[ExchangeEvent]=Field(default_factory=list,max_length=500)
+    interventions:list[ExchangeIntervention]=Field(default_factory=list,max_length=200)
+class PatientImport(Input):
+    file_name:str=Field(default='',max_length=200)
+    record:ExchangeRecord
+class PatientEdit(Input):
+    name:str|None=Field(default=None,min_length=1,max_length=80,pattern=r'^[^\r\n]*$')
+    age:int|None=Field(default=None,ge=0,le=129)
+    sex:Literal['男','女','其他','未確認']|None=None
+    pregnancy:Literal['unknown','pregnant','not_pregnant','not_applicable']|None=None
+    pregnancy_weeks:int|None=Field(default=None,ge=0,le=45)
+    lactation:Literal['unknown','breastfeeding','not_breastfeeding','not_applicable']|None=None
+    height_cm:float|None=Field(default=None,gt=0,le=300)
+    weight_kg:float|None=Field(default=None,gt=0,le=600)
+    history:list[str]|None=Field(default=None,max_length=50)
+    allergies:str|None=Field(default=None,max_length=3000)
+class MedicationSave(Input):
+    id:int|None=None
+    name:str=Field(min_length=1,max_length=100,pattern=r'^[^\r\n]*$')
+    dose:str=Field(default='',max_length=60,pattern=r'^[^\r\n]*$')
+    frequency:str=Field(default='',max_length=160,pattern=r'^[^\r\n]*$')
+    kind:Literal['current','new_order','reported']='current'
+# drug-knowledge-20261103: pharmacist-confirmed drug documents.
+class DrugMessage(Input):
+    message:str=Field(min_length=1,max_length=45000)
+    use_model:bool=True
+class DrugLicense(Input):license:str=Field(min_length=6,max_length=40)
+class DrugDocument(Input):
+    id:str=Field(pattern=r'^D-[0-9a-f]{10}$')
+    name:str|None=Field(default=None,max_length=80,pattern=r'^[^\r\n]*$')
+class MedicationStatus(Input):
+    id:int
+    status:Literal['active','stopped','removed']
+    note:str=Field(default='',max_length=500)
 
 class GovernedReview(core.ReviewJob):
     def snapshot(self):
@@ -195,6 +274,8 @@ async def lifespan(app):
     app.state.population=PopulationChecks(core.ROOT,core.CORPUS.pages)
     app.state.clinical_advice=ClinicalAdvice(core.ROOT,core.CORPUS.pages)
     app.state.label_interactions=LabelInteractions(core.ROOT,core.CORPUS.pages)
+    app.state.drug_library=drug_knowledge.DrugLibrary(core.STORE)
+    drug_knowledge.attach(core.CORPUS,app.state.drug_library.saved())
     yield
     for job in list(core.JOBS.values()):job.stop.set()
 
@@ -287,6 +368,69 @@ async def select(body:Select,request:Request):
     return with_population(result)
 @app.post('/api/patients/reset')
 async def reset(request:Request):core.STORE.reset(request.state.sid);return {'patient':None}
+
+# record-tools-20261103: JSON exchange and pharmacist edits. Every edit bumps the record version.
+def ensure_idle(sid):
+    if any(j.session==sid and j.status=='running' for j in core.JOBS.values()):raise ValueError('請先停止目前檢查')
+def edited(sid,patient,event,detail,message):
+    core.STORE.audit(patient['id'],event,sid,{**detail,'version':patient['version']})
+    return {'patient':patient,'message':message}
+@app.get('/api/patients/{pid}/export')
+async def export_patient(pid:str,request:Request):
+    if not re.fullmatch(r'[A-Za-z0-9_-]{1,80}',pid):raise ValueError('病歷號格式不正確')
+    record=await asyncio.to_thread(record_tools.export_record,core.STORE,pid)
+    core.STORE.audit(pid,'patient_exported',request.state.sid,{'version':record['patient']['version']})
+    return JSONResponse(record,headers={'Content-Disposition':f'attachment; filename="{pid}.json"'})
+@app.post('/api/patients/import')
+async def import_patient(body:PatientImport,request:Request):
+    ensure_idle(request.state.sid)
+    record=body.record.model_dump()
+    dropped=[m['name'] for m in record['medications'] if m['license'] and not app.state.catalog.current_product(m['license'])]
+    for med in record['medications']:
+        if med['name'] in dropped:med['license']=''
+    patient=await asyncio.to_thread(record_tools.import_record,core.STORE,request.state.sid,record,body.file_name)
+    message='已將 '+(body.file_name or '匯入檔案')+' 匯入為新病歷 '+patient['id']+(f"（原病歷號 {record['patient']['id']}）" if record['patient']['id'] else '')+'，未覆寫任何既有病歷。'+('以下藥品的許可證不在目前有效的官方快照中，已改為待核對：'+'、'.join(dropped) if dropped else '')
+    return edited(request.state.sid,patient,'patient_imported',{'file':body.file_name,'source_patient':record['patient']['id']},message)
+@app.post('/api/patients/edit')
+async def edit_patient(body:PatientEdit,request:Request):
+    ensure_idle(request.state.sid)
+    patient,changed=await asyncio.to_thread(record_tools.edit_patient,core.STORE,request.state.sid,{k:getattr(body,k) for k in body.model_fields_set})
+    if not changed:return {'patient':patient,'message':''}
+    return edited(request.state.sid,patient,'patient_record_edited',{'fields':changed},'已更新'+'、'.join(changed)+'。')
+@app.post('/api/medications/save')
+async def save_medication(body:MedicationSave,request:Request):
+    ensure_idle(request.state.sid)
+    patient,message=await asyncio.to_thread(record_tools.save_medication,core.STORE,request.state.sid,body.id,body.name,body.dose,body.frequency,body.kind)
+    if not message:return {'patient':patient,'message':''}
+    return edited(request.state.sid,patient,'medication_edited',{'medication':body.id,'name':body.name},message+'。')
+@app.post('/api/medications/status')
+async def medication_status(body:MedicationStatus,request:Request):
+    ensure_idle(request.state.sid)
+    patient,message=await asyncio.to_thread(record_tools.set_medication_status,core.STORE,request.state.sid,body.id,body.status,body.note)
+    return edited(request.state.sid,patient,'medication_status_changed',{'medication':body.id,'status':body.status},message+'。')
+
+def drug_actor(sid):return 'session:'+hashlib.sha256(sid.encode()).hexdigest()[:12]
+@app.post('/api/drug-knowledge/run')
+async def drug_knowledge_run(body:DrugMessage,request:Request):
+    model=(core.MODEL_URL,core.MODEL) if body.use_model and (await asyncio.to_thread(core.model_status))['available'] else None
+    return await asyncio.to_thread(drug_knowledge.run_request,body.message,app.state.drug_library,app.state.catalog,drug_actor(request.state.sid),model,core.MODEL_LOCK)
+@app.post('/api/drug-knowledge/fetch')
+async def drug_knowledge_fetch(body:DrugLicense,request:Request):
+    document=await asyncio.to_thread(drug_knowledge.fetch_insert,body.license)
+    staged=app.state.drug_library.stage(document,drug_actor(request.state.sid),body.license)
+    return {'document':staged,'steps':[{'title':'取得食藥署電子仿單','by':'fetch_tfda_insert','result':f"{staged['name']} · 版本 {staged['version']} · 核准日 {staged['approved']}",'state':'done'}],'message':f"已暫存「{staged['name']}」的食藥署電子仿單，請核對後按「寫入藥品資料庫」。寫入前不會用於任何檢查。"}
+@app.post('/api/drug-knowledge/save')
+async def drug_knowledge_save(body:DrugDocument,request:Request):
+    library=app.state.drug_library
+    document,replaced=library.save(body.id,drug_actor(request.state.sid),body.name)
+    pages=await asyncio.to_thread(drug_knowledge.attach,core.CORPUS,library.saved())
+    core.STORE.audit(None,'drug_document_saved',request.state.sid,{'document':document['id'],'kind':document['kind'],'name':document['name'],'license':document['license'],'version':document['version'],'sha256':document['sha256'],'superseded':replaced})
+    return {'document':{**document,'sections':[]},'retrieval_pages':pages,'message':f"已將「{document['name']}」寫入藥品資料庫並加入仿單檢索"+('，取代同一許可證的舊版本' if replaced else '')+'。既有檢查結果不會自動改寫，請重新檢查。'}
+@app.post('/api/drug-knowledge/discard')
+async def drug_knowledge_discard(body:DrugDocument,request:Request):
+    app.state.drug_library.discard(body.id);return {'message':'已略過，這份資料不會寫入。'}
+@app.get('/api/drug-knowledge')
+async def drug_knowledge_list():return {'documents':app.state.drug_library.saved(False)}
 
 def start_job(sid,job):
     with core.JOB_LOCK:
@@ -479,7 +623,7 @@ async def medhop_coverage(q:str=''):
 @app.api_route('/{name:path}',methods=['GET','HEAD'])
 async def static(name:str=''):
     name=name or 'index.html'
-    if name not in {'index.html','app.js','workflow.js','compliance.js','app.css','reference.css','logo.png','workspace.js','workspace.css'}:return JSONResponse({'error':'找不到頁面'},status_code=404)
+    if name not in {'index.html','app.js','workflow.js','compliance.js','app.css','reference.css','logo.png','workspace.js','workspace.css','record-tools.js','record-tools.css','drug-knowledge.js','drug-knowledge.css'}:return JSONResponse({'error':'找不到頁面'},status_code=404)
     return FileResponse(core.ROOT/'static'/name)
 
 

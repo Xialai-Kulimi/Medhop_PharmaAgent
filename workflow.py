@@ -80,6 +80,18 @@ def narrative_history(text):
         if fact and fact not in facts:facts.append(fact)
     return facts
 
+# record-edit-20261103: a pharmacist edit replaces the derived history; edit logs are not re-read as narrative.
+HISTORY_EDIT_SOURCES={'藥師編輯病史與過敏史','匯入病史與過敏史'}
+RECORD_EDIT_SOURCES={'藥師編輯用藥','藥師新增用藥','藥師變更用藥狀態','藥師更正姓名','由 JSON 檔匯入'}
+def record_history(events):
+    facts=[]
+    for event in events:
+        if event['source'] in HISTORY_EDIT_SOURCES:
+            line=re.search(r'^病史[：:](.*)$',event['body'],re.M)
+            if line:facts=[fact.strip() for fact in re.split(r'[；;]',line[1]) if fact.strip() and fact.strip()!='未記錄']
+        elif event['source'] not in RECORD_EDIT_SOURCES:facts.extend(narrative_history(event['body']))
+    return list(dict.fromkeys(facts))
+
 FREQ=re.compile(r'(?:偏頭痛|頭痛|疼痛|症狀|痛|發作)(?:發作|出現|加劇)?(?:的時候|時)(?:才|再)?(?:有需要|需要|必要時|需要時)?(?:服用|使用|吃)|(?:有需要|需要|必要)才(?:服用|使用|吃)|按需(?:服用|使用|吃)?|需要時(?:服用)?|必要時(?:服用)?|持續貼用|貼片每\d+小時更換一次|\b(?:QD|BID|TID|QID|HS|OHS|PRN|Q\d+H|AC|PC)\b|(?:每[日天週周晚]|一天|一日)[^，,。；;\n]{0,16}',re.I)
 ATTRIBUTE_NAMES={'劑量','用量','每次用量','服用劑量','每日劑量','頻次','服用次數'}
 DOSE_VALUE=r'\d+(?:\.\d+)?(?:/\d+(?:\.\d+)?)?\s*(?:mcg|mg|mL|毫克|微克|公克|g\b|錠|顆)(?:\s*/\s*(?:hour|hr|h|小時))?'
@@ -274,10 +286,10 @@ class PatientStore:
             row=db.execute('SELECT * FROM patients WHERE id=?',(pid,)).fetchone()
             if not row:return None
             events=[dict(r) for r in db.execute('SELECT * FROM patient_events WHERE patient_id=? ORDER BY id',(pid,))]
-            meds=[dict(r) for r in db.execute("SELECT * FROM patient_meds WHERE patient_id=? ORDER BY id",(pid,))]
+            meds=[dict(r) for r in db.execute("SELECT * FROM patient_meds WHERE patient_id=? AND status!='removed' ORDER BY id",(pid,))]
             reviews=[dict(r) for r in db.execute('SELECT id,version,created FROM patient_reviews WHERE patient_id=? ORDER BY created DESC,rowid DESC',(pid,))]
             actions=[dict(r) for r in db.execute('SELECT * FROM patient_actions WHERE patient_id=? ORDER BY id DESC',(pid,))]
-        return {**dict(row),'history':list(dict.fromkeys(fact for event in events for fact in narrative_history(event['body']))),'events':events,'medications':meds,'reviews':reviews,'actions':actions}
+        return {**dict(row),'history':record_history(events),'events':events,'medications':meds,'reviews':reviews,'actions':actions}
     def select(self,session,pid):
         patient=self.get(pid)
         if not patient:raise ValueError('找不到這筆病歷')
@@ -403,9 +415,14 @@ def directly_paired(quote,names):
                      r'(?:當|在)與?[ ]*'+first+r'.{0,8}(?:併用|合併|併服|合用).{0,14}'+second]
     return any(re.search(pattern,quote,re.I) for pattern in patterns)
 
+# drug-knowledge-20261103: pages from pharmacist-saved drug documents override the PDF labels;
+# pasted text is never used to classify a pair automatically.
+SOURCE_LABEL_KEYS=('kind','title','origin','url','unverified','document')
+def source_labels(page):return {k:page[k] for k in SOURCE_LABEL_KEYS if k in page}
+
 def classify_literal(pair,sources):
     for source in sources:
-        if source['id'] not in pair['source_ids'] or source.get('ocr'):continue
+        if source['id'] not in pair['source_ids'] or source.get('ocr') or source.get('unverified'):continue
         for sentence in re.split(r'(?<=[。；;])\s*',source['text']):
             if len(sentence)>550 or not all(literal_positions(sentence,n) for n in pair['drugs']) or not directly_paired(sentence,pair['drugs']):continue
             status=None
@@ -443,7 +460,7 @@ def pair_evidence(patient,pages):
             if signature not in source_map:
                 ident='P'+str(len(sources)+1)
                 source_map[signature]=ident
-                sources.append({'id':ident,'kind':'藥事 Agent 仿單'+(' · OCR' if page.get('ocr') else ''),'title':f"{page['file']} · 第 {page['page']} 頁",'file':page['file'],'page':page['page'],'text':quote,'full_text':page['text'],'ocr':bool(page.get('ocr')),'origin':'moda-agent/data/drug_info/'+page['file'],'url':'/documents/'+page['file']+'#page='+str(page['page'])})
+                sources.append({'id':ident,'kind':'藥事 Agent 仿單'+(' · OCR' if page.get('ocr') else ''),'title':f"{page['file']} · 第 {page['page']} 頁",'file':page['file'],'page':page['page'],'text':quote,'full_text':page['text'],'ocr':bool(page.get('ocr')),'origin':'moda-agent/data/drug_info/'+page['file'],'url':'/documents/'+page['file']+'#page='+str(page['page']),**source_labels(page)})
             refs.append(source_map[signature])
             if len(refs)==2:break
         pair={'id':f'pair-{len(pairs)+1}','drugs':[a,b],'status':'review' if refs else 'insufficient','source_ids':refs,'quote':'','action':'review_dispensing' if refs else 'supplement_sources'}

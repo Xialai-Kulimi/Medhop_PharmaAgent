@@ -17,5 +17,5 @@ def medication_detail(med,catalog,pages):
     references=[]
     for page in pages:
         if page['page']==1 and literal_positions(page['text'][:900],med['name']):
-            references.append({'file':page['file'],'page':1,'url':'/documents/'+page['file'],'title':page['file'],'note':'首頁出現該藥名，仍須核對實際產品；不等於本病人的產品已確認。'})
+            references.append({'file':page['file'],'page':1,'url':page.get('url','/documents/'+page['file']),'title':page.get('title',page['file']),'label':page.get('kind','原藥事仿單'),'note':'首頁出現該藥名，仍須核對實際產品；不等於本病人的產品已確認。'})
     return {'ingredient_lookup':med.get('ingredient_lookup',{}),'id':med['id'],'name':med['name'],'recorded_dose':med.get('dose',''),'recorded_frequency':med.get('frequency',''),'reported_text':med.get('body',''),'product':product_detail(product) if product else None,'candidates':[product_detail(x) for x in products[:6]],'candidate_count':len(candidates),'pharmacy_references':references[:6],'product_confirmed':bool(product),'source_url':catalog.meta['url'],'snapshot_date':catalog.meta['filter_date'],'missing_reason':'藥單只有藥名／成分，尚未核對實際產品。候選資料不能直接套用為病人處方。' if not product else '未提供的欄位仍須核對實際仿單。'}
