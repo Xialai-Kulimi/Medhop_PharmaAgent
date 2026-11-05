@@ -14,6 +14,10 @@ from population_checks import PopulationChecks
 from clinical_advice import ClinicalAdvice
 import record_tools
 import drug_knowledge
+import account
+# login-20261105: every /api/ call needs a signed-in pharmacist with a plan; validation scripts set MEDLINK_REQUIRE_LOGIN=0.
+REQUIRE_LOGIN=os.environ.get('MEDLINK_REQUIRE_LOGIN','1')!='0'
+OPEN_PATHS=('/api/auth/','/api/subscription/')
 
 class Input(BaseModel):
     model_config=ConfigDict(extra='forbid')
@@ -146,6 +150,11 @@ class MedicationSave(Input):
 class DrugMessage(Input):
     message:str=Field(min_length=1,max_length=45000)
     use_model:bool=True
+class Login(Input):
+    username:str=Field(min_length=1,max_length=40)
+    password:str=Field(min_length=1,max_length=200)
+class Checkout(Input):plan:str=Field(min_length=1,max_length=20)
+class NoBody(Input):pass
 class DrugLicense(Input):license:str=Field(min_length=6,max_length=40)
 class DrugDocument(Input):
     id:str=Field(pattern=r'^D-[0-9a-f]{10}$')
@@ -275,6 +284,7 @@ async def lifespan(app):
     app.state.clinical_advice=ClinicalAdvice(core.ROOT,core.CORPUS.pages)
     app.state.label_interactions=LabelInteractions(core.ROOT,core.CORPUS.pages)
     app.state.drug_library=drug_knowledge.DrugLibrary(core.STORE)
+    app.state.accounts=account.Accounts(core.STORE);core.STORE.actor_name=app.state.accounts.actor
     drug_knowledge.attach(core.CORPUS,app.state.drug_library.saved())
     yield
     for job in list(core.JOBS.values()):job.stop.set()
@@ -294,13 +304,41 @@ async def local_session(request:Request,call_next):
             return JSONResponse({'error':'資料超過大小上限'},status_code=413)
     sid=request.cookies.get('medlink_session','')
     request.state.sid=sid if re.fullmatch(r'[A-Za-z0-9_-]{32}',sid) else secrets.token_urlsafe(24)
-    response=await call_next(request)
+    path=request.url.path;accounts=getattr(app.state,'accounts',None)
+    username=accounts.username(request.state.sid) if REQUIRE_LOGIN and accounts and path.startswith('/api/') and not path.startswith(OPEN_PATHS) else ''
+    if username is None:response=JSONResponse({'error':'請先登入'},status_code=401)
+    elif username and not accounts.subscribed(username):response=JSONResponse({'error':'請先選擇方案'},status_code=402)
+    else:response=await call_next(request)
     response.set_cookie('medlink_session',request.state.sid,httponly=True,samesite='strict')
     response.headers['Cache-Control']='no-store';response.headers['X-Content-Type-Options']='nosniff'
     return response
 
 @app.exception_handler(ValueError)
 async def invalid(request,exc):return JSONResponse({'error':str(exc)},status_code=409)
+
+@app.get('/api/auth/status')
+async def auth_status(request:Request):return {**app.state.accounts.status(request.state.sid),'require_login':REQUIRE_LOGIN}
+def new_session(request):
+    # A new session id at sign-in; the old browser session keeps no access.
+    app.state.accounts.logout(request.state.sid);request.state.sid=secrets.token_urlsafe(24)
+@app.post('/api/auth/login')
+async def auth_login(body:Login,request:Request):
+    new_session(request);app.state.accounts.login(request.state.sid,body.username.strip(),body.password)
+    return app.state.accounts.status(request.state.sid)
+@app.post('/api/auth/demo')
+async def auth_demo(body:NoBody,request:Request):
+    new_session(request);app.state.accounts.demo(request.state.sid)
+    return app.state.accounts.status(request.state.sid)
+@app.post('/api/auth/logout')
+async def auth_logout(body:NoBody,request:Request):
+    app.state.accounts.logout(request.state.sid);core.STORE.reset(request.state.sid)
+    return app.state.accounts.status(request.state.sid)
+@app.post('/api/subscription/checkout')
+async def subscription_checkout(body:Checkout,request:Request):
+    app.state.accounts.checkout(request.state.sid,body.plan)
+    status=app.state.accounts.status(request.state.sid)
+    core.STORE.audit(None,'subscription_changed',request.state.sid,{'plan':body.plan,'payment':'simulated'})
+    return status
 
 @app.get('/api/bootstrap')
 async def bootstrap(request:Request):
@@ -409,7 +447,7 @@ async def medication_status(body:MedicationStatus,request:Request):
     patient,message=await asyncio.to_thread(record_tools.set_medication_status,core.STORE,request.state.sid,body.id,body.status,body.note)
     return edited(request.state.sid,patient,'medication_status_changed',{'medication':body.id,'status':body.status},message+'。')
 
-def drug_actor(sid):return 'session:'+hashlib.sha256(sid.encode()).hexdigest()[:12]
+def drug_actor(sid):return app.state.accounts.actor(sid) or 'session:'+hashlib.sha256(sid.encode()).hexdigest()[:12]
 @app.post('/api/drug-knowledge/run')
 async def drug_knowledge_run(body:DrugMessage,request:Request):
     model=(core.MODEL_URL,core.MODEL) if body.use_model and (await asyncio.to_thread(core.model_status))['available'] else None
@@ -444,7 +482,9 @@ async def review(body:Review,request:Request):
     if not p:raise ValueError('請先輸入病人姓名或病歷號')
     count=len({m['name_key'] for m in p['medications'] if m['status']=='active'})
     if count<1:raise ValueError('請提供至少一項用藥')
-    return start_job(request.state.sid,GovernedReview(request.state.sid,p,body.use_model and count>1))
+    started=start_job(request.state.sid,GovernedReview(request.state.sid,p,body.use_model and count>1))
+    app.state.accounts.record_check(request.state.sid)
+    return started
 @app.post('/api/query')
 async def query(body:Query,request:Request):
     from workflow import identity
@@ -623,7 +663,7 @@ async def medhop_coverage(q:str=''):
 @app.api_route('/{name:path}',methods=['GET','HEAD'])
 async def static(name:str=''):
     name=name or 'index.html'
-    if name not in {'index.html','app.js','workflow.js','compliance.js','app.css','reference.css','logo.png','workspace.js','workspace.css','record-tools.js','record-tools.css','drug-knowledge.js','drug-knowledge.css'}:return JSONResponse({'error':'找不到頁面'},status_code=404)
+    if name not in {'index.html','app.js','workflow.js','compliance.js','app.css','reference.css','logo.png','workspace.js','workspace.css','record-tools.js','record-tools.css','drug-knowledge.js','drug-knowledge.css','account.js','account.css'}:return JSONResponse({'error':'找不到頁面'},status_code=404)
     return FileResponse(core.ROOT/'static'/name)
 
 

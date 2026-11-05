@@ -8,7 +8,7 @@ assert len(labels.evaluate(patient(['Sildenafil','Tadalafil']))['alerts'])==1
 for names in [['Sildenafil'],['Tadalafil'],['Sildenafil','Aspirin'],['Sildenafil','Vardenafil']]:assert not labels.evaluate(patient(names))['alerts']
 stopped=patient(['Sildenafil','Tadalafil']);stopped['medications'][1]['status']='stopped';assert not labels.evaluate(stopped)['alerts']
 with tempfile.TemporaryDirectory(dir=ROOT/"runtime",ignore_cleanup_errors=True) as folder:
- os.environ['MEDLINK_RUNTIME']=folder;os.environ['MODEL_URL']='http://127.0.0.1:1/api/v1'
+ os.environ['MEDLINK_RUNTIME']=folder;os.environ['MEDLINK_REQUIRE_LOGIN']='0';os.environ['MODEL_URL']='http://127.0.0.1:1/api/v1'
  from fastapi.testclient import TestClient
  print("loading API",flush=True)
  import asgi

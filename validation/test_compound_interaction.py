@@ -8,6 +8,7 @@ parsed=medications(text)
 assert len(parsed)==1 and parsed[0]['name']=='BAKTAR' and parsed[0]['frequency']=='一天三餐飯後吃'
 with tempfile.TemporaryDirectory(dir=ROOT/'runtime') as folder:
  os.environ['MEDLINK_RUNTIME']=folder
+ os.environ['MEDLINK_REQUIRE_LOGIN']='0'
  from fastapi.testclient import TestClient
  import asgi
  with TestClient(asgi.app,base_url='http://127.0.0.1') as c:

@@ -3,6 +3,7 @@ import os,sys,tempfile,gc
 ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT))
 with tempfile.TemporaryDirectory(dir=ROOT/'runtime') as folder:
  os.environ['MEDLINK_RUNTIME']=folder
+ os.environ['MEDLINK_REQUIRE_LOGIN']='0'
  from fastapi.testclient import TestClient
  import asgi
  with TestClient(asgi.app,base_url='http://127.0.0.1') as c:

@@ -1,0 +1,11 @@
+{
+  "all_passed": true,
+  "checks": [
+    "api_requires_sign_in_and_rejects_wrong_password",
+    "demo_button_signs_in_with_subscribed_plan_and_rotates_session",
+    "unsubscribed_account_goes_through_simulated_checkout",
+    "usage_and_audit_name_the_signed_in_pharmacist"
+  ],
+  "isolated_runtime": true,
+  "payment_data_collected": false
+}

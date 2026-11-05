@@ -125,7 +125,9 @@ class PrivateStore(PatientStore):
             if len(result)>=40:break
         return result
     def audit(self,pid,event,actor,detail):
-        actor=actor if not re.fullmatch(r'[A-Za-z0-9_-]{32}',actor) else 'session:'+hashlib.sha256(actor.encode()).hexdigest()[:12]
+        # login-20261105: a signed-in session is recorded as the pharmacist's account.
+        named=getattr(self,'actor_name',None);named=named(actor) if named else None
+        actor=named if named else actor if not re.fullmatch(r'[A-Za-z0-9_-]{32}',actor) else 'session:'+hashlib.sha256(actor.encode()).hexdigest()[:12]
         with self.connect() as db:db.execute('INSERT INTO audit(patient_id,event,actor,detail,created) VALUES(?,?,?,?,?)',(pid,event,actor,json.dumps(detail,ensure_ascii=False),stamp()))
     def disposition(self,session,rid,action,note):
         p=self.active(session)

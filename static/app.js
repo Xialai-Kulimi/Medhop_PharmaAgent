@@ -75,4 +75,4 @@ $('#recordForm').addEventListener('submit',async e=>{e.preventDefault();$('#save
 $('#input').addEventListener('input',()=>{$('#send').disabled=busy||!$('#input').value.trim();$('#input').style.height='auto';$('#input').style.height=Math.min($('#input').scrollHeight,160)+'px';});
 $('#input').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();submit();}});
 $('#composer').addEventListener('submit',submit);
-document.addEventListener('DOMContentLoaded',async()=>{try{boot=await api('/api/bootstrap');record=boot.record;initWorkflow(boot.workflow);modelEnabled=!!boot.model.available;welcome();renderRecord();setBusy(false);}catch(err){log.append(el('div','notice warn','無法載入本機資料：'+err.message));}},{once:true});
+document.addEventListener('DOMContentLoaded',async()=>{try{await accountGate();boot=await api('/api/bootstrap');record=boot.record;initWorkflow(boot.workflow);modelEnabled=!!boot.model.available;welcome();renderRecord();setBusy(false);}catch(err){log.append(el('div','notice warn','無法載入本機資料：'+err.message));}},{once:true});

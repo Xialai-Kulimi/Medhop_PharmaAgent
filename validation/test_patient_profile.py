@@ -3,6 +3,7 @@ import os,sys,tempfile,json,sqlite3
 ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT));(ROOT/'runtime').mkdir(exist_ok=True)
 with tempfile.TemporaryDirectory(dir=ROOT/'runtime') as folder:
  os.environ['MEDLINK_RUNTIME']=folder
+ os.environ['MEDLINK_REQUIRE_LOGIN']='0'
  from fastapi.testclient import TestClient
  import asgi
  from workflow import identity,medications

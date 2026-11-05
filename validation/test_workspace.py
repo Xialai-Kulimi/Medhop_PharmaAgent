@@ -3,6 +3,7 @@ import tempfile,os,sys,json,time
 ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT))
 with tempfile.TemporaryDirectory(dir=ROOT/'runtime') as folder:
  os.environ['MEDLINK_RUNTIME']=folder
+ os.environ['MEDLINK_REQUIRE_LOGIN']='0'
  from fastapi.testclient import TestClient
  import asgi
  from workflow import medications

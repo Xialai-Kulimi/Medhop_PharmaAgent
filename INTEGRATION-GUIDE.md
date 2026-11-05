@@ -116,3 +116,14 @@ OCR 仿單可能含標題亂碼、表格錯位或藥名與數字誤辨。引用�
 檢索與配對時，這些來源以自己的名稱、版本與食藥署網站連結呈現。食藥署仿單與原 PDF 一樣可依直接併用描述分類；藥師貼上的內容只列為待藥師判讀的來源，不會自動判定交互作用。寫入新資料不會改寫既有檢查結果，請重新檢查。API：`POST /api/drug-knowledge/run`、`POST /api/drug-knowledge/fetch`、`POST /api/drug-knowledge/save`、`POST /api/drug-knowledge/discard`、`GET /api/drug-knowledge`；驗證見 `validation/test_drug_knowledge.py`（使用虛構藥名的合成仿單，格式依 GetDrugDoc 回應）。
 
 食藥署用戶端依公開的 GetDrugDoc 規格撰寫；許可證字號前綴與 8 碼代碼對照表、VALUE 欄位的 HTML 與 base64 解碼方式，參考 shin13/opentaimed（MIT，授權文字見 `licenses/opentaimed-LICENSE`）。食藥署內容僅供藥師核對使用，仍以食藥署網站與實際產品仿單為準。
+
+
+## 藥師登入與模擬訂閱
+
+開啟系統時先出現登入頁。可用帳號密碼登入，或按「Demo 體驗」以「陳藥師 · 示範社區藥局」帳號直接進入（已附社區藥局方案）。另有尚未訂閱的示範帳號 `lin`／`medhop2026`：登入後會先進入方案頁，選擇方案、確認付款後才進入系統。
+
+- 方案：免費試用（每月 30 次檢查）、藥師個人 NT$490／月（每月 500 次）、社區藥局 NT$1,990／月（3 位藥師、不限次數）、醫院（另洽）。右上角的方案按鈕可查看目前方案、本月檢查次數與續訂日。
+- 付款為**模擬**：畫面只顯示一張示範卡，沒有卡號輸入欄位，系統不收集也不儲存任何付款資料，也不會扣款。目前不會因額度用完而擋下檢查。
+- 所有 `/api/` 請求都需要登入且有方案（未登入回 401、未訂閱回 402）；登入時更換 session。密碼以 PBKDF2 雜湊保存。
+- 稽核紀錄改記錄登入的藥師帳號（例如 `pharmacist:lin（林藥師 · 安心藥局）`），未登入時維持原本的 session 代碼。
+- 設定 `MEDLINK_REQUIRE_LOGIN=0` 可關閉登入檢查；既有驗證腳本以此方式執行，登入本身的驗證見 `validation/test_account.py`。
