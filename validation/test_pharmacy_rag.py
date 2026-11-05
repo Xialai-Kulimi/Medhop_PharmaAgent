@@ -9,7 +9,8 @@ with tempfile.TemporaryDirectory(dir=ROOT/'runtime') as folder:
  with TestClient(asgi.app,base_url='http://127.0.0.1') as c:
   def post(path,body):
    r=c.post(path,json=body);assert r.status_code==200,r.text;return r.json()
-  p=post('/api/workflow',{'message':'新病人測試甲，58歲男性。目前服用 Glibenclamide，一天一次'})['patient']
+  from agent_harness import seed,ask
+  p=seed(c,'測試甲',[('Glibenclamide','','一天一次')],age=58,sex='男')['patient']
   rag=asgi.core.CORPUS.label_rag.retrieve(p)
   assert rag['sources'] and rag['method']=='BM25 original-label RAG'
   for s in rag['sources']:
@@ -17,7 +18,7 @@ with tempfile.TemporaryDirectory(dir=ROOT/'runtime') as folder:
    assert s['text'] in page['text'] and s['retrieval']['score']>0 and s['retrieval']['chunk_offset']>=0
   detail=c.get('/api/medications/'+str(p['medications'][0]['id'])+'/details').json()
   assert detail['pharmacy_rag']['sources'] and detail['pharmacy_rag']['status']=='retrieved'
-  post('/api/workflow',{'message':'今天醫師新增 BAKTAR，一天三餐飯後吃'})
+  ask(c,'今天醫師新增 BAKTAR，一天三餐飯後吃',[('add_medications',{'medications':[{'name':'BAKTAR','frequency':'一天三餐飯後吃','kind':'new_order'}]})])
   jobid=post('/api/review',{'use_model':False})['id']
   for _ in range(150):
    job=c.get('/api/jobs/'+jobid).json()
@@ -36,7 +37,7 @@ with tempfile.TemporaryDirectory(dir=ROOT/'runtime') as folder:
   original=asgi.core.CORPUS.label_rag.retrieve
   asgi.core.CORPUS.label_rag.retrieve=lambda p:{'method':'BM25 original-label RAG','index':'test empty retrieval','sources':[],'pages':[],'source_ids':[],'queries':[],'status':'insufficient','generation':'source_bound','model_status':'not_run','scope':'test'}
   post('/api/patients/reset',{})
-  post('/api/workflow',{'message':'新病人測試乙，58歲男性。目前服用 Warfarin 5mg，一天一次，Aspirin 100mg，一天一次'})
+  seed(c,'測試乙',[('Warfarin','5mg','一天一次'),('Aspirin','100mg','一天一次')],age=58,sex='男')
   rid=post('/api/review',{'use_model':False})['id']
   for _ in range(150):
    empty=c.get('/api/jobs/'+rid).json()

@@ -64,26 +64,34 @@ class PrivateStore(PatientStore):
                         if clean!=original:
                             db.execute('INSERT INTO private_archive(kind,encrypted,created) VALUES(?,?,?)',(f'{table}:{item["id"]}',self.cipher.encrypt(original.encode()).decode(),stamp()))
                             db.execute(f'UPDATE {table} SET {column}=? WHERE id=?',(clean,item['id']))
-    def message(self,session,text,source='藥師輸入'):
-        who=identity(text);name=who.get('name','');clean=redact(text,name)
-        # Only clear-text full names need the private exact-match index.
-        lookup=self.digest(name) if name and name!=mask_name(name) else None
-        new_patient_id=None
-        if lookup and not who.get('id'):
-            with self.connect() as db:matches=db.execute('SELECT patient_id FROM identity_vault WHERE lookup=?',(lookup,)).fetchall()
-            if len(matches)>1:
-                return {'action':'ambiguous','message':'找到多筆同名病歷，請核對病歷號後選擇。','steps':[],'candidates':[self.get(r[0]) for r in matches],'patient':self.active(session)}
-            if matches:clean='病歷號：'+matches[0][0]+'\n'+clean
-            else:new_patient_id='P-'+secrets.token_hex(4).upper()
-        result=super().message(session,clean,source,new_patient_id=new_patient_id)
-        patient=result.get('patient')
-        if name and patient and result['action'] not in {'ambiguous','identity_conflict'}:
-            if lookup:
-                with self.connect() as db:db.execute('INSERT OR IGNORE INTO identity_vault VALUES(?,?,?)',(lookup,patient['id'],self.cipher.encrypt(name.encode()).decode()))
-            if text!=redact(text,name):self.archive('input:'+patient['id'],text)
-        if patient:result['patient']=self.get(patient['id'])
-        self.audit(patient['id'] if patient else '', 'patient_'+result['action'],session,{'version':patient.get('version') if patient else None})
-        return result
+    def find_by_name(self,name):
+        """Exact-name matches through the private HMAC index; names stay encrypted at rest."""
+        with self.connect() as db:rows=db.execute('SELECT patient_id FROM identity_vault WHERE lookup=?',(self.digest(name),)).fetchall()
+        found=[]
+        for row in rows:
+            p=self.get(row[0])
+            if p:found.append({'id':p['id'],'name':p['name'],'age':p['age'],'sex':p['sex'],'updated':p['updated']})
+        return found
+    def create_patient(self,session,name,profile):
+        """pharmacist-agent-20261105: structured creation; the working copy keeps a masked name, the original is encrypted."""
+        with self.connect() as db:
+            pid='P-'+secrets.token_hex(4).upper()
+            while db.execute('SELECT 1 FROM patients WHERE id=?',(pid,)).fetchone():pid='P-'+secrets.token_hex(4).upper()
+            db.execute('INSERT INTO patients(id,name,age,sex,created,updated,version) VALUES(?,?,?,?,?,?,0)',(pid,mask_name(name),profile.get('age'),profile.get('sex',''),stamp(),stamp()))
+            if name!=mask_name(name):db.execute('INSERT OR IGNORE INTO identity_vault VALUES(?,?,?)',(self.digest(name),pid,self.cipher.encrypt(name.encode()).decode()))
+        patient=self.select(session,pid)
+        rest={k:v for k,v in profile.items() if k not in {'age','sex'}}
+        return self.update_profile(session,rest) if rest else self.get(pid)
+    def save_review(self,rid,patient,result):
+        # Review text addresses the patient by name; at rest it keeps the masked name, like the patients table.
+        name=patient.get('name') or ''
+        if name and name!=mask_name(name):result=json.loads(json.dumps(result,ensure_ascii=False).replace(name,mask_name(name)))
+        super().save_review(rid,patient,result)
+    def review(self,rid):
+        review=super().review(rid)
+        name=((self.get(review['patient_id']) if review else None) or {}).get('name') or ''
+        if name and name!=mask_name(name):review['result']=json.loads(json.dumps(review['result'],ensure_ascii=False).replace(mask_name(name),name))
+        return review
     def get(self,pid):
         result=super().get(pid)
         if result:

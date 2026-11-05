@@ -82,7 +82,9 @@ def narrative_history(text):
 
 # record-edit-20261103: a pharmacist edit replaces the derived history; edit logs are not re-read as narrative.
 HISTORY_EDIT_SOURCES={'藥師編輯病史與過敏史','匯入病史與過敏史'}
-RECORD_EDIT_SOURCES={'藥師編輯用藥','藥師新增用藥','藥師變更用藥狀態','藥師更正姓名','由 JSON 檔匯入'}
+# pharmacist-agent-20261105: the agent writes history through tools; its raw input is kept but never re-parsed.
+AGENT_INPUT_SOURCE='藥師對話原文'
+RECORD_EDIT_SOURCES={'藥師編輯用藥','藥師新增用藥','藥師變更用藥狀態','藥師更正姓名','由 JSON 檔匯入','藥師更新基本資料',AGENT_INPUT_SOURCE}
 def record_history(events):
     facts=[]
     for event in events:
@@ -303,88 +305,6 @@ class PatientStore:
         with self.connect() as db:
             rows=db.execute('SELECT id,name,age,sex,updated FROM patients WHERE name LIKE ? OR id LIKE ? ORDER BY updated DESC LIMIT 40',('%'+search+'%','%'+search+'%')).fetchall()
         return [dict(r) for r in rows]
-    def message(self,session,text,source='藥師輸入',new_patient_id=None):
-        who=identity(text)
-        steps=[{'title':'辨識病人資料','by':'病歷','state':'done','result':who.get('name') or who.get('id') or '目前病人'}]
-        patient=None
-        has_identity=bool(who.get('id') or who.get('name'))
-        if has_identity:
-            with self.connect() as db:
-                if new_patient_id:rows=[]
-                elif who.get('id'):rows=db.execute('SELECT * FROM patients WHERE id=?',(who['id'],)).fetchall()
-                else:rows=db.execute('SELECT * FROM patients WHERE name=?',(who['name'],)).fetchall()
-            if rows:
-                candidates=[dict(r) for r in rows]
-                if 'age' in who:candidates=[r for r in candidates if r['age'] in (None,who['age'])]
-                if 'sex' in who:candidates=[r for r in candidates if r['sex'] in ('',None,who['sex'])]
-                if len(candidates)!=1:
-                    with self.connect() as db:db.execute('INSERT OR REPLACE INTO pending_patient VALUES(?,?,?)',(session,text,source))
-                    return {'action':'ambiguous','message':'找到同名或身分資料不一致的病歷。請先核對並選擇病人，避免把用藥寫入另一位病人的紀錄。','steps':steps,'candidates':[dict(r) for r in rows],'patient':self.active(session)}
-                candidate=candidates[0]
-                if who.get('name') and candidate['name'] and who['name']!=candidate['name']:
-                    return {'action':'identity_conflict','message':'病歷號與姓名不一致，請核對後重新輸入。','steps':steps,'patient':self.active(session)}
-                patient=self.select(session,candidate['id'])
-                steps.append({'title':'查詢既有病歷','by':'本機病歷','state':'done','result':'找到 '+patient['id']})
-                action='found'
-            else:
-                if not who.get('name') and not who.get('id'):
-                    raise ValueError('缺少病人身分')
-                if not who.get('name'):
-                    return {'action':'need_identity','message':'查無此病歷號。初次建檔請輸入姓名與基本資料，儲存後由系統產生病歷號。','steps':steps,'patient':self.active(session)}
-                pid=new_patient_id or 'P-'+secrets.token_hex(4).upper()
-                with self.connect() as db:
-                    db.execute('INSERT INTO patients(id,name,age,sex,created,updated,version) VALUES(?,?,?,?,?,?,0)',(pid,who.get('name',''),who.get('age'),who.get('sex',''),stamp(),stamp()))
-                patient=self.select(session,pid)
-                steps += [{'title':'查詢既有病歷','by':'本機病歷','state':'done','result':'查無紀錄'}, {'title':'新增病歷','by':'本機病歷','state':'done','result':pid}]
-                action='created'
-        else:
-            patient=self.active(session)
-            action='updated'
-        if not patient:
-            with self.connect() as db:
-                old=db.execute('SELECT body FROM pending_patient WHERE session=?',(session,)).fetchone()
-                pending=(old[0]+'\n' if old else '')+text
-                db.execute('INSERT OR REPLACE INTO pending_patient VALUES(?,?,?)',(session,pending,source))
-            return {'action':'need_identity','message':'初次建檔請先提供病人姓名與基本資料；病歷號由系統產生。我已暫存這次輸入，確認病人後會補入該病歷，再檢查用藥。','steps':steps,'patient':None}
-        with self.connect() as db:
-            pending=db.execute('SELECT body,source FROM pending_patient WHERE session=?',(session,)).fetchone()
-            db.execute('DELETE FROM pending_patient WHERE session=?',(session,))
-        if pending:text=pending[0]+'\n'+text;source=pending[1]
-        profile={k:v for k,v in identity(text).items() if k in {'age','sex','pregnancy','pregnancy_weeks','lactation','height_cm','weight_kg'}}
-        if profile:patient=self.update_profile(session,profile)
-        meds=medications(text)
-        if getattr(self,'ingredient_lookup',None):meds.extend(self.ingredient_lookup.chinese_medications(text,meds))
-        # Identity/search-only messages do not become a clinical event on every lookup.
-        remaining=text
-        for value in (who.get('name'),who.get('id')):
-            if value:remaining=remaining.replace(value,'')
-        remaining=re.sub(r'\d+\s*歲|男性|女性|[男女]|姓名|病人|患者|病患|病歷號碼|病歷號|病歷編號|病人編號|年齡|性別|查詢|請找|請問|載入病歷|重新檢查|新增病歷|新病人|建立病歷|有沒有病歷|是否有病歷|病歷資料|基本資料|[\s，,。？?：:！!]+','',remaining)
-        clinical=bool(meds or remaining or re.search(r'病史|過敏|診斷|服用|用藥|處方|每天|今日|今天|自述|缺貨|替代',text))
-        changed=False
-        if clinical:
-            with self.connect() as db:
-                existing=db.execute('SELECT id FROM patient_events WHERE patient_id=? AND body=?',(patient['id'],text)).fetchone()
-                if not existing:
-                    db.execute('INSERT INTO patient_events(patient_id,body,source,created) VALUES(?,?,?,?)',(patient['id'],text,source,stamp()))
-                    changed=True
-                for med in meds:
-                    if med['status']=='stopped':
-                        updated=db.execute("UPDATE patient_meds SET status='stopped',updated=? WHERE patient_id=? AND name_key=? AND status='active'",(stamp(),patient['id'],key(med['name']))).rowcount
-                        changed=changed or bool(updated)
-                        continue
-                    exists=db.execute("SELECT id FROM patient_meds WHERE patient_id=? AND name_key=? AND dose=? AND frequency=? AND status='active'",(patient['id'],key(med['name']),med['dose'],med['frequency'])).fetchone()
-                    if not exists:
-                        db.execute('INSERT INTO patient_meds(patient_id,name,name_key,dose,frequency,kind,body,status,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?)',(patient['id'],med['name'],key(med['name']),med['dose'],med['frequency'],med['kind'],med['text'],'active',stamp(),stamp()))
-                        changed=True
-                changed=bool(merge_compatible_medications(db,patient['id'])) or changed
-                if changed:db.execute('UPDATE patients SET updated=?,version=version+1 WHERE id=?',(stamp(),patient['id']))
-        patient=self.get(patient['id'])
-        active=[m for m in patient['medications'] if m['status']=='active']
-        steps.append({'title':'更新病史與用藥紀錄','by':'藥師輸入','state':'done','result':f'{len(active)} 項目前用藥' if clinical else '已載入既有資料'})
-        message=('查無病歷，已建立 '+patient['id']+'。' if action=='created' else '已找到並載入 '+patient['id']+'。' if action=='found' else '已補入目前病人的紀錄。')
-        message+=('請繼續輸入目前服用的藥品、劑量、頻次，以及今日新處方或自行購買的藥品。' if not active else '已將目前用藥與新增資訊一併納入，接著逐對檢查交互作用與調劑注意事項。' if len(active)>1 else '目前一項用藥也會核對病人條件與單藥禁忌；若有其他處方、自購藥或保健品，可繼續補充以檢查交互作用。')
-        if not meds and re.search(r'(?:可以|是否|能不能|想|考慮)(?:服用|吃|用)',text):message+='這次詢問中的藥物未記成已服用；如需納入新處方檢查，請明確輸入「新增處方：藥名、劑量、頻次」。'
-        return {'action':action,'message':message,'steps':steps,'patient':patient,'review_needed':len(active)>=1,'changed':changed}
     def review(self,rid):
         with self.connect() as db:row=db.execute('SELECT * FROM patient_reviews WHERE id=?',(rid,)).fetchone()
         return {**dict(row),'result':json.loads(row['result'])} if row else None

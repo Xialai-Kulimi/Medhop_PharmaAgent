@@ -1,0 +1,6 @@
+/* pharmacist-agent-20261105: quick-check results are read-only; nothing in them writes to the record. */
+.quick-check{margin-top:14px;padding:14px 16px;border:1px solid #cfe2f0;border-radius:12px;background:#fff}
+.quick-check-title{margin:0 0 4px;font-size:15px;color:#1f3d55}
+.quick-check .dispensing-actions,.quick-check .dispensing-edit{display:none}
+.quick-check-add{margin-top:12px}
+.welcome-message .intro-copy{white-space:pre-line}

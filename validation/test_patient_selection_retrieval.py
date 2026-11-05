@@ -17,9 +17,10 @@ with tempfile.TemporaryDirectory(dir=ROOT/'runtime') as folder:
     time.sleep(.05)
    assert job['status']=='done',job
    return rid
-  a=post('/api/workflow',{'message':'新病人測試甲，58歲男性。目前服用 Glibenclamide，一天一次。\n新增處方：BAKTAR 800/160mg，一天兩次。'})['patient'];ra=review()
+  from agent_harness import seed,ask
+  a=seed(c,'測試甲',[('Glibenclamide','','一天一次'),('BAKTAR','800/160mg','一天兩次','new_order')],age=58,sex='男')['patient'];ra=review()
   post('/api/patients/reset',{})
-  b=post('/api/workflow',{'message':'新病人測試乙，60歲男性。目前服用 Sildenafil 50mg PRN、Tadalafil 5mg QD。'})['patient'];rb=review()
+  b=seed(c,'測試乙',[('Sildenafil','50mg','PRN'),('Tadalafil','5mg','QD')],age=60,sex='男')['patient'];rb=review()
   loaded=post('/api/patients/select',{'id':a['id']})
   assert loaded['selected_review']['id']==ra and loaded['selected_review']['is_current']
   assert loaded['selected_review']['patient_id']==a['id'] and not loaded['review_needed'] and not loaded['changed']
@@ -31,7 +32,8 @@ with tempfile.TemporaryDirectory(dir=ROOT/'runtime') as folder:
   with asgi.core.STORE.connect() as db:
    assert db.execute('SELECT COUNT(*) FROM patient_reviews').fetchone()[0]==before
    assert db.execute('SELECT COUNT(*) FROM patient_events').fetchone()[0]==events
-  post('/api/workflow',{'message':'目前服用 Glibenclamide 5mg，一天一次'})
+  gid=next(m['id'] for m in a['medications'] if m['name']=='Glibenclamide')
+  ask(c,'Glibenclamide 是 5mg，一天一次',[('update_medication',{'medication_id':gid,'dose':'5mg'})])
   stale=post('/api/patients/select',{'id':a['id']});assert stale['selected_review']['id']==ra and not stale['selected_review']['is_current']
   assert c.get('/api/reports/'+ra).status_code==409
   current=review();assert post('/api/patients/select',{'id':a['id']})['selected_review']['id']==current
@@ -43,7 +45,7 @@ with tempfile.TemporaryDirectory(dir=ROOT/'runtime') as folder:
   selected=post('/api/patients/select',{'id':a['id']});assert selected['selected_query']['id']=='q-a'
   selected=post('/api/patients/select',{'id':b['id']});assert selected['selected_review']['id']==rb and selected['selected_query'] is None
   post('/api/patients/reset',{})
-  p=post('/api/workflow',{'message':'新病人測試丙，40歲男性。目前服用 Aspirin 100mg，一天一次'})['patient']
+  p=seed(c,'測試丙',[('Aspirin','100mg','一天一次')],age=40,sex='男')['patient']
   selected=post('/api/patients/select',{'id':p['id']});assert selected['selected_review'] is None and selected['review_needed']
  gc.collect()
 print('PASS: patient-matched saved review/sources, no rerun or clinical mutation, stale version preserved and blocked, current review preferred, research ownership, never-reviewed case fallback')

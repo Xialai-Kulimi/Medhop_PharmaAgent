@@ -1,14 +1,13 @@
 {
   "all_passed": true,
   "checks": [
-    "missing_frequency_then_known_frequency_merges_into_original_id",
+    "later_frequency_updates_the_original_id",
     "repeated_messages_do_not_add_active_duplicates",
     "one_source_and_one_pregnancy_alert",
-    "original_entries_retained_as_merged_history",
-    "old_medication_detail_resolves_to_current_record",
-    "merged_single_drug_does_not_invoke_pair_agent",
-    "missing_dose_supplemented_without_duplicate",
-    "conflicting_explicit_doses_not_silently_overwritten",
+    "medication_detail_reflects_the_update",
+    "single_drug_does_not_invoke_pair_agent",
+    "dose_change_keeps_one_row",
+    "separate_regimen_only_from_the_record_form",
     "conflicting_regimens_still_have_one_population_warning",
     "change_invalidates_old_report",
     "legacy_sparse_duplicates_can_be_repaired_without_deletion"

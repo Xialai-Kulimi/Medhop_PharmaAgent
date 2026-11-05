@@ -1,14 +1,6 @@
 'use strict';
-// drug-knowledge-20261103: pharmacists paste drug data or ask for an official insert in the chat; nothing is saved before they confirm.
-const DRUG_LICENSE=/(衛署|衛部|內衛)[一-鿿]{2,5}字\s*第?\s*\d{4,6}\s*號?/;
-const DRUG_HEADINGS=['適應症','用法用量','用法及用量','禁忌','警語','注意事項','交互作用','副作用','不良反應','特殊族群','懷孕','授乳','過量','藥理','藥物動力學','臨床','儲存','包裝','性狀','成分'];
-function drugHeadingCount(text){const found=new Set();for(const line of text.split('\n')){const bare=line.trim().replace(/^[#\s【\[（(]*(?:\d+(?:\.\d+)*[.、)）]?|[一二三四五六七八九十]+[、.])?\s*/,'').replace(/[】\]）):： ]+$/,'');if(bare.length>16)continue;for(const h of DRUG_HEADINGS)if(bare.startsWith(h)||bare.endsWith(h))found.add(h);}return found.size;}
-function looksLikeDrugData(text){
-  if(DRUG_LICENSE.test(text)&&text.length<300)return true;
-  if(drugHeadingCount(text)>=3)return true;
-  return /仿單|藥品資料|藥物資料|說明書/.test(text)&&/查|找|搜尋|抓|下載|更新|新增|寫入|匯入|加入|貼上|以下|補充/.test(text);
-}
-function drugSteps(result,first){const lead=first||{title:'藥品資料代理人',by:result.mode==='agent'?'AutoGen':'規則判斷',result:result.mode==='agent'?'由模型選擇工具':'未使用模型',state:'done'};return [lead,...result.steps];}
+// drug-knowledge-20261103: preview cards and product candidates for drug data the pharmacist agent stages; nothing is saved before the pharmacist confirms.
+function drugSteps(result,first){return [first,...result.steps];}
 function renderDrugResult(body,steps,result,first){
   renderSteps(steps,drugSteps(result,first));body.append(el('div','say',result.message));
   if(result.candidates?.length){
@@ -18,15 +10,6 @@ function renderDrugResult(body,steps,result,first){
   }
   if(result.document)body.append(drugPreview(result.document,body));
   scrollEnd();
-}
-async function submitDrugKnowledge(text){
-  if(busy||active)return;
-  userTurn(text);$('#input').value='';$('#input').style.height='auto';setBusy(true);
-  const body=newTurn(),steps=el('ol','steps');body.append(steps);
-  renderSteps(steps,[{title:'藥品資料代理人',by:modelEnabled?'AutoGen':'規則判斷',result:'處理中',state:'running'}]);
-  try{renderDrugResult(body,steps,await api('/api/drug-knowledge/run',{message:text,use_model:modelEnabled}));}
-  catch(err){steps.remove();body.append(el('div','notice warn',err.message));}
-  finally{setBusy(false);$('#input').focus();scrollEnd();}
 }
 async function fetchDrugCandidate(license,list){
   if(busy||active)return;
@@ -63,5 +46,3 @@ function drugPreview(doc,body){
   actions.append(save,skip);card.append(actions,error);
   return card;
 }
-const submitPatientWorkflow=submitWorkflow;
-submitWorkflow=async function(text){return explicitNewPatient(text)||!looksLikeDrugData(text)?submitPatientWorkflow(text):submitDrugKnowledge(text);};

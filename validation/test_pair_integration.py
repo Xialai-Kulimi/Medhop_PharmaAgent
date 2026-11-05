@@ -2,7 +2,8 @@ from pathlib import Path
 import sys,json,tempfile,threading
 ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT))
 from server import Corpus
-from workflow import pair_evidence,medications
+from workflow import pair_evidence
+from agent_harness import stored
 from pair_integration import PairIntegration,INTERMEDIATES
 from governance import PrivateStore,ReviewGate,drafts
 c=Corpus();joiner=PairIntegration(c);checks=[]
@@ -25,11 +26,9 @@ p=patient(['Amlodipine','Tacrolimus']);b=joiner.join(p,pair_evidence(p,c.pages))
 p=patient(['Cimetidine','Warfarin']);b=joiner.join(p,pair_evidence(p,c.pages));assert b['pairs'][0]['status'] not in {'avoid','interaction'};checks.append('third_product_drug_list_does_not_create_DDI')
 p=patient(['SERTRALINE','Warfarin']);b=joiner.join(p,pair_evidence(p,c.pages));assert b['pairs'][0]['medhop']['status']=='unmapped';checks.append('unmapped_names_never_guessed')
 p=patient(['Amlodipine','Warfarin']);b=joiner.join(p,pair_evidence(p,c.pages));assert b['pairs'][0]['status']=='no_effect_reported';assert b['pairs'][0]['integration']['status']=='review_required';checks.append('label_specific_no_effect_is_not_global_safe')
-assert [m['name'] for m in medications('目前用藥：\nDB00203\nDB00820')]==['DB00203','DB00820'];assert not medications('DB00887 如何影響 NKCC？');checks.append('explicit_research_identifiers_without_invented_doses')
-assert not medications('病歷號：ISOLATED-RESEARCH-PAIR');checks.append('patient_identifier_not_medication')
 with tempfile.TemporaryDirectory(dir=ROOT/'runtime') as folder:
     store=PrivateStore(Path(folder)/'records.sqlite3');gate=ReviewGate(store)
-    p=store.message('test-session','姓名：配對測試\n目前用藥：\nDB00203\nDB00820')['patient'];a=joiner.join(p,pair_evidence(p,c.pages));store.save_review('pair-review',p,{'assessment':a,'answer':'待藥師確認'})
+    p=stored(store,'test-session','配對測試',['DB00203','DB00820']);a=joiner.join(p,pair_evidence(p,c.pages));store.save_review('pair-review',p,{'assessment':a,'answer':'待藥師確認'})
     report=gate.report('test-session','pair-review');assert 'DB00203' in report['pharmacist'] and '研究路徑' in report['pharmacist']
     try:gate.delivery('test-session','pair-review')
     except ValueError:pass

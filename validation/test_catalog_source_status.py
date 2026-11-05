@@ -14,7 +14,8 @@ with tempfile.TemporaryDirectory(dir=ROOT/'runtime') as folder:
    assert status['label_status']=='not_matched' and not status['labels']
   known=catalog.current_product('衛署藥製字第004919號');assert any(x['file']=='A0049191G0.pdf' for x in known['source_availability']['labels'])
   products=c.get('/api/catalog',params={'q':'Atorvastatin'}).json()['products'];assert products and all('source_availability' in x for x in products)
-  r=c.post('/api/workflow',json={'message':'新病人測試甲，68歲男性，目前服用 Clopidogrel 75mg、Aspirin 100mg、Atorvastatin 40mg，都是一天一次'}).json()
+  from agent_harness import seed
+  r=seed(c,'測試甲',[('Clopidogrel','75mg','一天一次'),('Aspirin','100mg','一天一次'),('Atorvastatin','40mg','一天一次')],age=68,sex='男')
   meds=[m for m in r['patient']['medications'] if m['status']=='active'];assert [m['name'] for m in meds]==['Clopidogrel','Aspirin','Atorvastatin']
  gc.collect()
 print('PASS: raw null/pointer distinguished, exact-license PDF links, unmatched product not substituted, catalog endpoint metadata, medication order preserved')

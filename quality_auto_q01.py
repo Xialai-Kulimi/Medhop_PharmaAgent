@@ -14,6 +14,23 @@ import time
 import uuid
 
 
+def agent_intake(call, text, deadline):
+    """Chat input goes to the pharmacist agent (needs MODEL_URL with tool calling); wait for the run and any review it started."""
+    run_id = call('POST', '/api/agent', {'message': text})['id']
+    while True:
+        run = call('GET', '/api/agent/' + run_id)
+        if run['status'] != 'running':
+            break
+        if time.perf_counter() > deadline:
+            call('POST', '/api/agent/cancel', {'id': run_id})
+            raise TimeoutError('Agent 逾時：' + run_id)
+        time.sleep(.2)
+    for action in run.get('actions', []):
+        while action.get('type') == 'review' and call('GET', '/api/jobs/' + action['job'])['status'] == 'running':
+            time.sleep(.1)
+    return {'patient': run.get('patient'), 'steps': run.get('steps'), 'message': run.get('reply') or run.get('error'), 'action': 'agent', 'agent_run': run}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--project', type=Path, default=Path.cwd())
@@ -55,7 +72,8 @@ def main():
         print('1/3 載入系統，使用獨立測試病歷……', flush=True)
         with TestClient(app, base_url='http://127.0.0.1') as client:
             started = time.perf_counter()
-            intake = data(client.post('/api/workflow', json={'message': report['input']}))
+            call = lambda method, route, payload=None: data(client.request(method, route, json=payload) if payload is not None else client.request(method, route))
+            intake = agent_intake(call, report['input'], started + args.timeout)
             report['workflow_seconds'] = time.perf_counter() - started
             save('workflow.json', intake)
             patient = intake.get('patient') or {}

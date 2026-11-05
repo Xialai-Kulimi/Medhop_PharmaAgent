@@ -7,7 +7,7 @@
     "unconfirmed_candidates_never_treated_as_patient_product",
     "male_report_has_no_pregnancy_lactation_prompt",
     "actual_confirmed_change_requires_acknowledgment",
-    "unknown_stop_rolls_back",
+    "unknown_original_medication_and_free_text_rejected",
     "confirmed_change_preserves_stopped_and_new_prescriptions",
     "old_report_and_repeat_change_blocked",
     "reported_tablet_count_not_invented_as_frequency_or_strength",

@@ -1,6 +1,6 @@
 'use strict';
 // MedHop workspace: only real execution steps and source-grounded evidence are shown.
-workflowWelcome=function(){const welcome=el('article','turn welcome-message');welcome.append(meta('藥你安心：藥事安全Agent'),el('p','intro-copy','您好，請描述病人的狀況或用藥情形。我會先查詢病歷，查無紀錄時新增，再整理藥品資料與交互作用來源，供藥師確認。'));log.append(welcome);};
+workflowWelcome=function(){const welcome=el('article','turn welcome-message');welcome.append(meta('藥你安心：藥事安全Agent'),el('p','intro-copy','您好，我是藥師 Agent。用平常的說法交代我就可以，例如：\n・新病人王小明，68 歲男性，目前吃 Clopidogrel 75mg QD、Omeprazole 20mg QD\n・Warfarin 和 Aspirin 可以一起吃嗎？\n・查普拿疼的官方仿單\n我會自己判斷要建立病歷、補充用藥、試算併用或查藥品資料；所有結果都待藥師確認。'));log.append(welcome);};
 newTurn=function(){const turn=el('article','turn'),body=el('div','turn-body');turn.append(meta('藥你安心：藥事安全Agent'),body);log.append(turn);return body;};
 userTurn=function(text){const turn=el('article','msg-user');turn.append(meta('藥師'),el('div','bubble',text));log.append(turn);scrollEnd();};
 const TOOL_NAMES={consult_pharmacy_agent:'委派藥事 Agent',read_patient_medications:'讀取病人條件與藥單',retrieve_pharmacy_evidence:'查詢藥事仿單',retrieve_medhop_mechanisms:'MedHop 機轉檢索'};

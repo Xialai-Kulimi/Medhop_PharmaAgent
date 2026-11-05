@@ -1,0 +1,20 @@
+{
+  "all_passed": true,
+  "checks": [
+    "a_name_the_pharmacist_did_not_write_is_refused",
+    "one_message_creates_patient_history_medications_and_starts_review",
+    "drugs_not_in_the_message_are_refused_individually",
+    "original_words_kept_once_with_name_and_phone_redacted",
+    "same_name_shows_candidates_instead_of_merging_or_duplicating",
+    "combination_questions_check_without_writing_the_record",
+    "writes_only_reach_the_current_patient",
+    "existing_drug_is_updated_not_added_twice",
+    "recent_turns_and_current_patient_reach_the_model",
+    "licence_must_come_from_the_pharmacist",
+    "unknown_tools_are_reported_back",
+    "citations_must_match_sources_found_in_this_message",
+    "without_a_model_nothing_is_guessed_and_the_error_is_shown"
+  ],
+  "isolated_runtime": true,
+  "model": "scripted tool calls; no model server"
+}

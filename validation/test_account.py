@@ -26,7 +26,8 @@ with tempfile.TemporaryDirectory(dir=ROOT/'runtime') as folder:
   paid=post('/api/subscription/checkout',{'plan':'personal'})['subscription']
   assert paid['plan']=='personal' and paid['checks_limit']==500 and '未實際扣款' in paid['payment']
   checks.append('unsubscribed_account_goes_through_simulated_checkout')
-  post('/api/workflow',{'message':'新病人測試甲，68 歲男性，目前吃 Clopidogrel 75mg，一天一次。'})
+  from agent_harness import seed
+  seed(client,'測試甲',[('Clopidogrel','75mg','一天一次')],age=68,sex='男')
   post('/api/review',{'use_model':False})
   assert client.get('/api/auth/status').json()['subscription']['checks_used']==1
   with asgi.core.STORE.connect() as db:actors={r[0] for r in db.execute('SELECT actor FROM audit')}

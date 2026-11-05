@@ -391,7 +391,7 @@ class ReviewJob(Job):
                 self.answer+='\n目前結果仍需藥師複核，不能判定整份處方安全或直接配藥。'
             self.citation_status='extractive'
             self.step('整理調劑提醒','藥事工作流程',result='待藥師確認')
-            STORE.save_review(self.id,self.patient,{'assessment':result,'answer':self.answer})
+            if getattr(self,'persist',True):STORE.save_review(self.id,self.patient,{'assessment':result,'answer':self.answer})
             self.status='done'
 
 class Handler(BaseHTTPRequestHandler):
@@ -482,16 +482,11 @@ class Handler(BaseHTTPRequestHandler):
             body = json.loads(self.rfile.read(length))
             path = urllib.parse.urlparse(self.path).path
             if path == '/api/workflow':
-                text=str(body.get('message','')).strip()
-                if not text or len(text)>12000:return self.send({'error':'請輸入病人資料或用藥資訊'},400)
-                source='藥師輸入'
-                if body.get('example_id'):
-                    example=next((e for e in CORPUS.examples if e['id']==body['example_id']),None)
-                    if example and text==example['text']:source=example['source']
-                return self.send(STORE.message(self.sid,text,source))
+                # pharmacist-agent-20261105: chat input is handled by the pharmacist agent in asgi.py (POST /api/agent).
+                return self.send({'error':'對話輸入改由藥師 Agent 處理，請以 uvicorn asgi:app 啟動'},410)
             if path == '/api/patients/select':
                 STORE.select(self.sid,str(body.get('id','')))
-                return self.send(STORE.message(self.sid,'載入病歷'))
+                return self.send({'action':'selected','patient':STORE.active(self.sid)})
             if path == '/api/patients/reset':
                 STORE.reset(self.sid)
                 return self.send({'patient':None})

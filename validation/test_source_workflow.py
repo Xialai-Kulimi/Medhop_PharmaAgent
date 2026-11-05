@@ -3,7 +3,11 @@ import json,sys,tempfile
 sys.stdout.reconfigure(encoding='utf-8')
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
-from workflow import PatientStore,identity,medications,pair_evidence,accept_classification,directly_paired,canonical
+from workflow import identity,medications,pair_evidence,accept_classification,directly_paired,canonical
+from governance import PrivateStore
+from agent_harness import stored
+import record_tools
+# identity() and medications() no longer read pharmacist input; they redact names and read legacy events and the benchmark examples.
 examples=json.loads((ROOT/'data/examples.json').read_text(encoding='utf-8'))
 for e in examples:
     assert 'id' not in identity(e['text']), (e['name'],identity(e['text']))
@@ -19,31 +23,11 @@ assert identity('病人王小明，68歲男性')['name']=='王小明'
 assert len(medications('目前吃 Clopidogrel 75mg、Aspirin 100mg，都是一天一次。'))==2
 assert len(medications('自己買了 Ibuprofen 來吃，一天兩三次。'))==1
 with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parent) as temp:
-    store=PatientStore(Path(temp)/'test.sqlite')
-    r=store.message('one','病人王小明，68歲男性')
-    assert r['action']=='created' and not r['patient']['medications']
-    pid=r['patient']['id']
-    r=store.message('one','目前吃 Clopidogrel 75mg、Aspirin 100mg，都是一天一次。')
-    assert r['action']=='updated' and len(r['patient']['medications'])==2 and r['review_needed']
-    r=store.message('two','病人王小明，68歲男性')
-    assert r['action']=='found' and r['patient']['id']==pid
-    assert len(store.list())==1
-    r=store.message('one','今天腸胃科開了 Omeprazole 20mg QD')
-    assert len(r['patient']['medications'])==3
-    r=store.message('one','自己買了 Ibuprofen 來吃，一天兩三次。')
-    assert len(r['patient']['medications'])==4
-    r=store.message('one','今天腸胃科開了 Omeprazole 20mg QD')
-    assert len(r['patient']['medications'])==4
-    r=store.message('three','Amlodipine 5mg QD\nWarfarin 5mg QD')
-    assert r['action']=='need_identity'
-    r=store.message('three','姓名：黃○雄，男，45歲')
-    assert r['action']=='created' and len(r['patient']['medications'])==2
-    r=store.message('one','病人王小明，70歲男性')
-    assert r['action']=='ambiguous' and len(store.list())==2
-    store.select('one',pid)
-    original=store.get(pid)
+    store=PrivateStore(Path(temp)/'test.sqlite')
+    original=stored(store,'one','王小明',[('Clopidogrel','75mg','一天一次'),('Omeprazole','20mg','QD')],age=68,sex='男');pid=original['id']
     store.save_review('stale-check',original,{'test':'record-version'})
-    store.message('one','已停用 Omeprazole')
+    omeprazole=next(m for m in original['medications'] if m['name']=='Omeprazole')
+    record_tools.set_medication_status(store,'one',omeprazole['id'],'stopped','')
     assert any(m['name']=='Omeprazole' and m['status']=='stopped' for m in store.get(pid)['medications'])
     try:
         store.disposition('one','stale-check','reviewed','此為舊版本檢查的測試')
@@ -70,4 +54,4 @@ positive_sources={s['id']:s for s in positive['sources']}
 assert positive['pairs'][0]['quote'] in positive_sources[positive['pairs'][0]['source_ids'][0]]['text']
 actual_page=next(p for p in pages if p['file']=='AC59887100.pdf' and p['page']==8)
 assert not directly_paired(canonical(actual_page['text']),['Cimetidine','Warfarin'])
-print(json.dumps({'parser':'passed','create_lookup_incremental_meds':'passed','cross_session_lookup':'passed','id_QID_regression':'passed','allergy_and_alternatives_excluded':'passed','pending_identity':'passed','ambiguous_patient':'passed','original_case_pairs':len(review['pairs']),'original_case_sources':len(review['sources']),'source_bound_pairs':sum(bool(p['source_ids']) for p in review['pairs'])},ensure_ascii=False),flush=True)
+print(json.dumps({'legacy_text_reader':'passed','stale_review_disposition_blocked':'passed','original_case_pairs':len(review['pairs']),'original_case_sources':len(review['sources']),'source_bound_pairs':sum(bool(p['source_ids']) for p in review['pairs'])},ensure_ascii=False),flush=True)

@@ -1,7 +1,7 @@
 'use strict';
 const $ = s => document.querySelector(s);
 const log = $('#logInner');
-let boot, record, draft = null, active = null, busy = false, modelEnabled = true;
+let boot, record, draft = null, active = null, busy = true, modelEnabled = true;
 const sourcesById = new Map();
 const el = (tag, cls, text) => { const e = document.createElement(tag); if(cls)e.className=cls; if(text!==undefined)e.textContent=text; return e; };
 const button = (text, action, cls='text-btn') => {const b=el('button',cls,text);b.type='button';b.addEventListener('click',action);return b;};
@@ -67,7 +67,7 @@ function renderEvidence(target,job){
 }
 function showEdge(edge,map){$('#evidenceTitle').textContent=`MedHop 關係 #${edge.id}`;const box=$('#evidenceContent');box.replaceChildren(el('h3','',edge.source+' → '+edge.target),el('p','muted','以下為既有圖譜的抽取描述，請以支持文本核對。'),el('pre','',edge.description));for(const id of edge.citations||edge.source_ids||[]){const s=map.get(id);if(s)box.append(el('h4','',`[${id}] ${s.title}`),el('pre','',s.full_text));}$('#evidenceDialog').showModal();}
 
-async function submit(event){event?.preventDefault();const text=$('#input').value.trim();if(!text||busy)return;await submitWorkflow(text);}
+async function submit(event){event?.preventDefault();const text=$('#input').value.trim();if(!text||busy)return;await submitAgent(text);}
 
 document.querySelectorAll('[data-close]').forEach(b=>b.addEventListener('click',()=>$('#'+b.dataset.close).close()));
 $('#editRecord').addEventListener('click',()=>isWorkflow()?resetWorkflowPatient():openRecord());

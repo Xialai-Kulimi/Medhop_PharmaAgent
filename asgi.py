@@ -2,28 +2,27 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
-import asyncio, hashlib, json, os, re, secrets, sqlite3, threading
+import asyncio, hashlib, json, os, re, secrets, sqlite3, threading, types
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, FileResponse, HTMLResponse
 from pydantic import BaseModel, ConfigDict, Field
 import server as core
 from governance import PrivateStore, Catalog, ReviewGate, drafts, redact, medication_checks
-from agent_service import run_agents, graphrag
+from agent_service import graphrag
 from pair_integration import PairIntegration
 from population_checks import PopulationChecks
 from clinical_advice import ClinicalAdvice
 import record_tools
 import drug_knowledge
 import account
+import pharmacist_agent
+from workflow import key, AGENT_INPUT_SOURCE
 # login-20261105: every /api/ call needs a signed-in pharmacist with a plan; validation scripts set MEDLINK_REQUIRE_LOGIN=0.
 REQUIRE_LOGIN=os.environ.get('MEDLINK_REQUIRE_LOGIN','1')!='0'
 OPEN_PATHS=('/api/auth/','/api/subscription/')
 
 class Input(BaseModel):
     model_config=ConfigDict(extra='forbid')
-class Message(Input):
-    message:str=Field(min_length=1,max_length=12000)
-    example_id:str|None=None
 class PatientProfile(Input):
     name:str=Field(default='',max_length=80,pattern=r'^[^\r\n]*$')
     age:int|None=Field(default=None,ge=0,le=129)
@@ -147,9 +146,6 @@ class MedicationSave(Input):
     frequency:str=Field(default='',max_length=160,pattern=r'^[^\r\n]*$')
     kind:Literal['current','new_order','reported']='current'
 # drug-knowledge-20261103: pharmacist-confirmed drug documents.
-class DrugMessage(Input):
-    message:str=Field(min_length=1,max_length=45000)
-    use_model:bool=True
 class Login(Input):
     username:str=Field(min_length=1,max_length=40)
     password:str=Field(min_length=1,max_length=200)
@@ -165,6 +161,7 @@ class MedicationStatus(Input):
     note:str=Field(default='',max_length=500)
 
 class GovernedReview(core.ReviewJob):
+    persist=True
     def snapshot(self):
         result=super().snapshot()
         result['research']=self.assessment.get('medhop_research') if self.assessment else None
@@ -210,21 +207,8 @@ class GovernedReview(core.ReviewJob):
         from safety_alerts import apply_safety
         apply_safety(core.ROOT,core.CORPUS.pages,self.patient,self.assessment)
         self.assessment['medication_checks']=medication_checks(self.patient,app.state.catalog)
+        # The legacy moda-agent post-review step no longer runs; the pharmacist agent starts reviews as one of its tools.
         self.assessment['agent']={'status':'disabled','original_28_checks':False}
-        if self.use_model:
-            agent_step=len(self.steps)
-            self.step('藥師入口委派來源核對工具','AutoGen','running')
-            try:
-                def emit(tool,result):self.step(tool,'AutoGen 工具呼叫',result=result)
-                with core.MODEL_LOCK:
-                    result=asyncio.run(run_agents(self.patient,self.assessment,core.CORPUS,core.MODEL_URL,core.MODEL,emit,self.stop))
-                self.assessment['agent']=result
-                self.step('AutoGen 委派結果','本機',result='已執行工具' if result['status']=='completed' else '工具路由未完整執行，人工覆核')
-            except Exception as exc:
-                self.assessment['agent']={'status':'unavailable','reason':type(exc).__name__,'original_28_checks':False}
-                self.step('AutoGen 未完成','本機',result='保留原文檢查，轉交藥師')
-            finally:
-                with self.lock:self.steps[agent_step].update(state='done',result='工具紀錄如下；待藥師確認')
         self.assessment['reports']=drafts(self.patient,self.assessment)
         self.assessment['workflow_state']=self.assessment['reports']['state']
         super().finish_assessment()
@@ -232,8 +216,12 @@ class GovernedReview(core.ReviewJob):
         if alerts:
             self.assessment['overall']='contact_prescriber'
             self.answer='\n'.join(alert['message'] for alert in alerts)+'\n已附原始仿單引用；待藥師確認，不自動更換藥物或劑量。'
-            core.STORE.save_review(self.id,self.patient,{'assessment':self.assessment,'answer':self.answer})
-        core.STORE.audit(self.patient['id'],'review_completed',self.session,{'review':self.id,'version':self.patient['version'],'state':self.assessment['workflow_state'],'agent':self.assessment['agent']['status']})
+            if self.persist:core.STORE.save_review(self.id,self.patient,{'assessment':self.assessment,'answer':self.answer})
+        if self.persist:core.STORE.audit(self.patient['id'],'review_completed',self.session,{'review':self.id,'version':self.patient['version'],'state':self.assessment['workflow_state'],'agent':self.assessment['agent']['status']})
+
+class QuickCheck(GovernedReview):
+    """pharmacist-agent-20261105: the same review engine on an unsaved medication list; nothing is written to the record."""
+    persist=False
 
 class ResearchJob(core.Job):
     def run(self):
@@ -331,7 +319,7 @@ async def auth_demo(body:NoBody,request:Request):
     return app.state.accounts.status(request.state.sid)
 @app.post('/api/auth/logout')
 async def auth_logout(body:NoBody,request:Request):
-    app.state.accounts.logout(request.state.sid);core.STORE.reset(request.state.sid)
+    app.state.accounts.logout(request.state.sid);core.STORE.reset(request.state.sid);pharmacist_agent.forget(request.state.sid)
     return app.state.accounts.status(request.state.sid)
 @app.post('/api/subscription/checkout')
 async def subscription_checkout(body:Checkout,request:Request):
@@ -343,7 +331,7 @@ async def subscription_checkout(body:Checkout,request:Request):
 @app.get('/api/bootstrap')
 async def bootstrap(request:Request):
     # A fresh page starts with no selected case; existing records remain searchable.
-    core.STORE.reset(request.state.sid)
+    core.STORE.reset(request.state.sid);pharmacist_agent.forget(request.state.sid)
     return {'stats':core.CORPUS.stats(),'model':await asyncio.to_thread(core.model_status),'examples':core.CORPUS.examples,'record':core.read_record(request.state.sid),'repositories':core.CORPUS.manifest['repositories'],'extraction':core.CORPUS.manifest['extraction'],'workflow':{'patient':core.STORE.active(request.state.sid),'patients':core.STORE.list()},'government':app.state.catalog.meta,'limitations':['所有系統輸出待藥師確認；資料不足、高風險及無法判定即轉交藥師。','單藥病人條件警示只涵蓋 data/population_rules.json 已核對的原仿單規則；未命中不代表適合孕婦或其他族群。','原 moda-agent 缺少 utils；本版重用原 Agent 類別，搭配另行揭露的相容提示與唯讀工具，不代表原 28 項檢核全數完成。','MedHop 為 PubMed 研究資料；圖譜路徑與完整 GraphRAG 模型推理分別標示，均不等於病人臨床證據。','政府資料僅納入未註銷且未逾期產品；成分候選不能確認病人實際產品或法律分類。','本機完整姓名顯示與加密身分索引不取代藥局帳號權限、全碟加密與個資治理。'],'runtime':{'python':__import__('platform').python_version(),'api':'Uvicorn / FastAPI / Pydantic','hardware_verified':False}}
 
 @app.get('/api/patients')
@@ -363,21 +351,16 @@ def with_population(result):
     result['safety_alerts']=safety['safety_alerts']
     result['safety_alert_sources']=safety['sources']
     return result
-@app.post('/api/workflow')
-async def workflow(body:Message,request:Request):
-    source='藥師輸入'
-    example=next((e for e in core.CORPUS.examples if e['id']==body.example_id and e['text']==body.message),None)
-    if example:source=example['source']
-    result=await asyncio.to_thread(core.STORE.message,request.state.sid,body.message,source)
-    return with_population(result)
 @app.post('/api/patients/profile')
 async def patient_profile(body:PatientProfile,request:Request):
     if body.pregnancy!='pregnant' and body.pregnancy_weeks is not None:raise ValueError('只有確認懷孕時才能填寫孕週')
     p=core.STORE.active(request.state.sid)
     if not p:
         if not body.name.strip():raise ValueError('初次建檔請填寫病人姓名，病歷號由系統產生')
-        result=await asyncio.to_thread(core.STORE.message,request.state.sid,'姓名：'+body.name.strip()+(f'\n年齡：{body.age}歲' if body.age is not None else '')+(f'\n性別：{body.sex}' if body.sex in {'男','女'} else ''))
-        if result['action'] in {'found','ambiguous','identity_conflict','need_identity'}:return result
+        same=await asyncio.to_thread(core.STORE.find_by_name,body.name.strip())
+        if same:return {'action':'ambiguous','message':'已有同名病歷，請先核對並選擇病人。','steps':[],'candidates':same,'patient':None}
+        p=await asyncio.to_thread(core.STORE.create_patient,request.state.sid,body.name.strip(),{k:v for k,v in {'age':body.age,'sex':body.sex if body.sex in {'男','女'} else None}.items() if v is not None})
+        result={'action':'created','steps':[],'message':'已建立 '+p['id']+'。'}
     else:result={'action':'updated','steps':[],'message':'已更新病人基本資料；請依目前資料重新檢查。'}
     values=body.model_dump(exclude={'name','history','allergies'})
     values={k:v for k,v in values.items() if k not in {'height_cm','weight_kg'} or k in body.model_fields_set}
@@ -392,7 +375,7 @@ async def patient_profile(body:PatientProfile,request:Request):
     return {**result,'patient':p,'review_needed':False}
 @app.post('/api/patients/select')
 async def select(body:Select,request:Request):
-    patient=core.STORE.select(request.state.sid,body.id)
+    patient=core.STORE.select(request.state.sid,body.id);pharmacist_agent.forget(request.state.sid)
     reviews=patient.get('reviews',[])
     selected=next((review for review in reviews if review['version']==patient['version']),reviews[0] if reviews else None)
     review=core.STORE.review(selected['id']) if selected else None
@@ -405,7 +388,7 @@ async def select(body:Select,request:Request):
     if query:result['selected_query']['is_current']=query['version']==patient['version']
     return with_population(result)
 @app.post('/api/patients/reset')
-async def reset(request:Request):core.STORE.reset(request.state.sid);return {'patient':None}
+async def reset(request:Request):core.STORE.reset(request.state.sid);pharmacist_agent.forget(request.state.sid);return {'patient':None}
 
 # record-tools-20261103: JSON exchange and pharmacist edits. Every edit bumps the record version.
 def ensure_idle(sid):
@@ -448,10 +431,6 @@ async def medication_status(body:MedicationStatus,request:Request):
     return edited(request.state.sid,patient,'medication_status_changed',{'medication':body.id,'status':body.status},message+'。')
 
 def drug_actor(sid):return app.state.accounts.actor(sid) or 'session:'+hashlib.sha256(sid.encode()).hexdigest()[:12]
-@app.post('/api/drug-knowledge/run')
-async def drug_knowledge_run(body:DrugMessage,request:Request):
-    model=(core.MODEL_URL,core.MODEL) if body.use_model and (await asyncio.to_thread(core.model_status))['available'] else None
-    return await asyncio.to_thread(drug_knowledge.run_request,body.message,app.state.drug_library,app.state.catalog,drug_actor(request.state.sid),model,core.MODEL_LOCK)
 @app.post('/api/drug-knowledge/fetch')
 async def drug_knowledge_fetch(body:DrugLicense,request:Request):
     document=await asyncio.to_thread(drug_knowledge.fetch_insert,body.license)
@@ -469,6 +448,54 @@ async def drug_knowledge_discard(body:DrugDocument,request:Request):
     app.state.drug_library.discard(body.id);return {'message':'已略過，這份資料不會寫入。'}
 @app.get('/api/drug-knowledge')
 async def drug_knowledge_list():return {'documents':app.state.drug_library.saved(False)}
+
+# pharmacist-agent-20261105: every chat message goes to the pharmacist agent; the model chooses which tools to call.
+class AgentMessage(Input):message:str=Field(min_length=1,max_length=45000)
+def agent_alerts(patient):
+    result=with_population({'patient':patient,'action':'updated','steps':[]})
+    return {k:result[k] for k in ('population_checks','interaction_alerts','interaction_alert_sources','patient_alerts','patient_alert_sources','safety_alerts','safety_alert_sources') if k in result}
+def agent_log_input(patient,text):
+    with core.STORE.connect() as db:db.execute('INSERT INTO patient_events(patient_id,body,source,created) VALUES(?,?,?,?)',(patient['id'],redact(text,patient.get('name') or ''),AGENT_INPUT_SOURCE,core.now()))
+def agent_set_acquisition(pid,name,acquisition):
+    if not acquisition:return
+    with core.STORE.connect() as db:
+        row=db.execute("SELECT id FROM patient_meds WHERE patient_id=? AND name_key=? AND status='active' ORDER BY id DESC LIMIT 1",(pid,key(name))).fetchone()
+        if row:db.execute('INSERT OR IGNORE INTO medication_meta(med_id,acquisition,class,license,note) VALUES(?,?,?,?,?)',(row[0],acquisition,'unknown','',''))
+def agent_start_review(sid,patient):
+    count=len({m['name_key'] for m in patient['medications'] if m['status']=='active'})
+    if count<1:raise ValueError('目前病人沒有使用中的用藥，無法檢查')
+    started=start_job(sid,GovernedReview(sid,patient,count>1))
+    app.state.accounts.record_check(sid)
+    return started['id']
+def agent_quick_check(sid,patient):
+    job=QuickCheck(sid,patient,True)
+    with core.JOB_LOCK:
+        if any(j.session==sid and j.status=='running' for j in core.JOBS.values()):raise ValueError('目前有檢查正在進行，請等它完成再試算')
+        core.JOBS[job.id]=job
+    job.run()
+    if job.status!='done':raise ValueError('試算未完成：'+(job.error or job.status))
+    return job
+def agent_context(sid):
+    store=core.STORE
+    return types.SimpleNamespace(store=store,catalog=app.state.catalog,library=app.state.drug_library,corpus=lambda:core.CORPUS,
+        actor=drug_actor,audit=lambda pid,event,detail:store.audit(pid,event,sid,detail),ensure_idle=ensure_idle,
+        start_review=agent_start_review,quick_check=agent_quick_check,alerts=agent_alerts,log_input=agent_log_input,
+        set_acquisition=agent_set_acquisition,enrich=lambda med:store.ingredient_lookup.enrich(med) if getattr(store,'ingredient_lookup',None) else None)
+def agent_model():return {'url':core.MODEL_URL,'model':core.MODEL,'headers':core.model_headers()}
+@app.post('/api/agent')
+async def agent_message(body:AgentMessage,request:Request):
+    run=pharmacist_agent.start(request.state.sid,body.message,agent_context(request.state.sid),agent_model())
+    return {'id':run.id}
+@app.get('/api/agent/{rid}')
+async def agent_status(rid:str,request:Request):
+    run=pharmacist_agent.get(rid)
+    if not run or run.session!=request.state.sid:return JSONResponse({'error':'找不到這則訊息'},status_code=404)
+    return run.snapshot()
+@app.post('/api/agent/cancel')
+async def agent_cancel(body:Select,request:Request):
+    run=pharmacist_agent.get(body.id)
+    if not run or run.session!=request.state.sid:raise ValueError('找不到這則訊息')
+    run.stop.set();return {'status':'cancelling'}
 
 def start_job(sid,job):
     with core.JOB_LOCK:
@@ -552,30 +579,25 @@ async def drug_details(mid:int,request:Request):
 
 @app.post('/api/prescriptions/confirm-change')
 async def confirm_change(body:ConfirmedChange,request:Request):
-    from workflow import medications,identity,key,stamp
+    from workflow import key,stamp
     if not body.acknowledged:raise ValueError('請確認已與醫師核對實際變更')
-    if identity(body.text).get('name') or identity(body.text).get('id'):raise ValueError('處方變更不可切換病人')
     patient=core.STORE.active(request.state.sid)
     if not patient:raise ValueError('請先選擇病人')
-    if body.old_med_id is not None:
-        old=next((m for m in patient['medications'] if m['id']==body.old_med_id and m['status']=='active'),None)
-        if not old:raise ValueError('原用藥不屬於目前病人的有效藥單')
-        name=body.replacement_name.strip();dose=body.replacement_dose.strip();freq=body.replacement_frequency.strip()
-        if not name or not freq or re.search(r'[\r\n\x00-\x1f]',name+dose+freq):raise ValueError('請完整填入單一藥名、用量與頻次，不可含換行或控制字元')
-        if re.search(r'[：:;；，,、]',name):raise ValueError('藥名欄位只能填單一實際藥品名稱')
-        amount=re.fullmatch(r'(\d+(?:\.\d+)?)(?:/(\d+(?:\.\d+)?))?\s*(mg|mcg|g|mL|毫克|微克|公克|錠|顆|單位|units?|IU|U)',dose,re.I)
-        if not amount or float(amount[1])<=0 or amount[2] and float(amount[2])<=0:raise ValueError('請填入正確且大於零的每次用量與單位')
-        insulin=bool(re.search(r'insulin|胰島素',name,re.I))
-        if insulin and not re.search(r'(?:單位|units?|IU|U)$',dose,re.I):raise ValueError('胰島素須使用醫師指定的單位，不可用mg換算')
-        if name.casefold() in {'insulin','胰島素'}:raise ValueError('請填醫師指定的胰島素製劑，不可只寫類別')
-        stopped=[{'id':old['id'],'name':old['name'],'status':'stopped'}]
-        new=[{'name':name,'dose':dose,'frequency':freq,'kind':'new_order','status':'active','text':f'{name} {dose}，{freq}'}]
-        change_text=f"已停用：{old['name']}\n新增處方：{name} {dose}，{freq}"
-    else:
-        meds=medications(body.text);stopped=[m for m in meds if m['status']=='stopped'];new=[m for m in meds if m['status']=='active' and m['kind']=='new_order']
-        if not stopped or not new or len(stopped)+len(new)!=len(meds):raise ValueError('請明確分行填寫「已停用：原藥名」及「新增處方：藥名、規格、頻次」')
-        if any(not m['dose'] or not m['frequency'] for m in new):raise ValueError('已確認的新處方須有實際規格／用量與頻次')
-        change_text=body.text
+    # pharmacist-agent-20261105: only the structured form is accepted; free text is no longer parsed into stop/new orders.
+    if body.old_med_id is None:raise ValueError('請選擇要停用的原用藥，並填寫新處方的藥名、用量與頻次')
+    old=next((m for m in patient['medications'] if m['id']==body.old_med_id and m['status']=='active'),None)
+    if not old:raise ValueError('原用藥不屬於目前病人的有效藥單')
+    name=body.replacement_name.strip();dose=body.replacement_dose.strip();freq=body.replacement_frequency.strip()
+    if not name or not freq or re.search(r'[\r\n\x00-\x1f]',name+dose+freq):raise ValueError('請完整填入單一藥名、用量與頻次，不可含換行或控制字元')
+    if re.search(r'[：:;；，,、]',name):raise ValueError('藥名欄位只能填單一實際藥品名稱')
+    amount=re.fullmatch(r'(\d+(?:\.\d+)?)(?:/(\d+(?:\.\d+)?))?\s*(mg|mcg|g|mL|毫克|微克|公克|錠|顆|單位|units?|IU|U)',dose,re.I)
+    if not amount or float(amount[1])<=0 or amount[2] and float(amount[2])<=0:raise ValueError('請填入正確且大於零的每次用量與單位')
+    insulin=bool(re.search(r'insulin|胰島素',name,re.I))
+    if insulin and not re.search(r'(?:單位|units?|IU|U)$',dose,re.I):raise ValueError('胰島素須使用醫師指定的單位，不可用mg換算')
+    if name.casefold() in {'insulin','胰島素'}:raise ValueError('請填醫師指定的胰島素製劑，不可只寫類別')
+    stopped=[{'id':old['id'],'name':old['name'],'status':'stopped'}]
+    new=[{'name':name,'dose':dose,'frequency':freq,'kind':'new_order','status':'active','text':f'{name} {dose}，{freq}'}]
+    change_text=f"已停用：{old['name']}\n新增處方：{name} {dose}，{freq}"
     with core.STORE.connect() as db:
         db.execute('BEGIN IMMEDIATE')
         selected=db.execute('SELECT patient_id FROM active_patient WHERE session=?',(request.state.sid,)).fetchone()
@@ -663,7 +685,7 @@ async def medhop_coverage(q:str=''):
 @app.api_route('/{name:path}',methods=['GET','HEAD'])
 async def static(name:str=''):
     name=name or 'index.html'
-    if name not in {'index.html','app.js','workflow.js','compliance.js','app.css','reference.css','logo.png','workspace.js','workspace.css','record-tools.js','record-tools.css','drug-knowledge.js','drug-knowledge.css','account.js','account.css'}:return JSONResponse({'error':'找不到頁面'},status_code=404)
+    if name not in {'index.html','app.js','workflow.js','compliance.js','app.css','reference.css','logo.png','workspace.js','workspace.css','record-tools.js','record-tools.css','drug-knowledge.js','drug-knowledge.css','account.js','account.css','agent.js','agent.css'}:return JSONResponse({'error':'找不到頁面'},status_code=404)
     return FileResponse(core.ROOT/'static'/name)
 
 

@@ -10,13 +10,14 @@ with tempfile.TemporaryDirectory(dir=ROOT/'runtime') as folder:
  with TestClient(asgi.app,base_url="http://127.0.0.1") as client:
   def post(path,body):
    r=client.post(path,json=body);assert r.status_code==200,r.text;return r.json()
-  p=post('/api/workflow',{'message':'新病人測試甲，68 歲男性。五月裝過心臟支架，有胃食道逆流，目前吃 Clopidogrel 75mg、Aspirin 100mg，都是一天一次。\n過敏史：Penicillin'})['patient'];pid=p['id']
+  from agent_harness import seed,ask
+  p=seed(client,'測試甲',[('Clopidogrel','75mg','一天一次'),('Aspirin','100mg','一天一次')],history=['五月裝過心臟支架','胃食道逆流'],allergies=['Penicillin'],age=68,sex='男')['patient'];pid=p['id']
   asgi.core.STORE.save_review('record-edit-version',p,{'assessment':{'medications':p['medications'],'pairs':[]},'answer':'待藥師確認'})
   e=post('/api/patients/edit',{'history':['心臟支架置放','胃食道逆流'],'allergies':'Penicillin（皮疹）'})
   assert e['patient']['history']==['心臟支架置放','胃食道逆流'] and e['patient']['version']>p['version']
   assert client.get('/api/reports/record-edit-version').status_code==409
   assert post('/api/patients/edit',{'history':['心臟支架置放','胃食道逆流']})['message']==''
-  later=post('/api/workflow',{'message':'病史：高血壓'})['patient'];assert later['history']==['心臟支架置放','胃食道逆流','高血壓']
+  later=ask(client,'病史：高血壓',[('update_history',{'add_history':['高血壓']})])['patient'];assert later['history']==['心臟支架置放','胃食道逆流','高血壓']
   checks.append('history_edit_replaces_derived_history_and_invalidates_old_review')
   aspirin=next(m for m in later['medications'] if m['name']=='Aspirin')
   r=post('/api/medications/save',{'id':aspirin['id'],'name':'Aspirin','dose':'81 mg','frequency':'每天一次','kind':'current'})

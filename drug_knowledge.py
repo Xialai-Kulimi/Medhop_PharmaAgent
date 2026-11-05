@@ -23,8 +23,6 @@ API='https://mcp.fda.gov.tw/Serv/Query.asmx/GetDrugDoc'
 PAGE='https://mcp.fda.gov.tw/im_detail_1/'
 AGENT='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15'
 HEADINGS=('適應症','用法用量','用法及用量','禁忌','警語','注意事項','交互作用','副作用','不良反應','特殊族群','懷孕','授乳','過量','藥理','藥物動力學','臨床','儲存','包裝','性狀','成分')
-REQUEST=re.compile(r'仿單|藥品資料|藥物資料|藥品說明書|說明書')
-VERB=re.compile(r'查|找|搜尋|抓|下載|更新|新增|寫入|匯入|加入|貼上|以下|補充')
 KIND_LABELS={'tfda':'食藥署電子仿單 · 藥師確認寫入','pasted':'藥師貼上藥品資料 · 未經官方核對'}
 
 def now():return datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=8))).isoformat(timespec='seconds')
@@ -125,26 +123,6 @@ def paste_sections(text):
     sections.append(current)
     return [{'title':s['title'],'level':1,'text':'\n'.join(s['lines'])} for s in sections if s['lines']]
 
-def paste_name(text):
-    match=re.search(r'(?:藥品名稱|中文品名|英文品名|品名|藥名|Drug name|Name)\s*[：:]\s*([^\n]{1,80})',text or '',re.I)
-    if match:return match[1].strip()
-    first=next((l.strip() for l in (text or '').splitlines() if l.strip()),'')
-    first=re.sub(r'^.*?(?:更新|新增|補充|寫入|貼上|以下)[^：:\n]*[：:]\s*','',first)
-    return first if 0<len(first)<=60 and not heading(first) else ''
-
-def classify_input(text):
-    """Rule-based intent used for the deterministic path and as the agent's guard."""
-    text=text or ''
-    if LICENSE_RE.search(text) and len(text)<300:return 'license'
-    headings={h for line in text.splitlines() for h in HEADINGS if heading(line.strip()).startswith(h)}
-    if len(headings)>=3:return 'pasted'
-    if REQUEST.search(text) and VERB.search(text):return 'pasted' if len(text)>=400 else 'name'
-    return None
-
-def name_query(text):
-    text=re.sub(r'查詢|查一下|查|找|搜尋|幫我|請|一下|抓|下載|更新|的|官方|食藥署|最新|電子|仿單|藥品資料|藥物資料|藥品說明書|說明書',' ',text or '')
-    return re.sub(r'[\s，。、？?！!：:「」]+',' ',text).strip()
-
 def preview(row,full=True):
     doc={k:row[k] for k in ('id','kind','name','name_en','license','version','approved','category','warning','page_url','retrieved','status','saved','sha256')}
     doc['sections']=json.loads(row['sections']);doc['label']=KIND_LABELS[row['kind']]
@@ -221,73 +199,6 @@ def attach(corpus,docs):
     corpus.pharma_text=corpus.base_text+''.join('\n'+re.sub(r'\s+',' ',p['text']).casefold() for p in pages)
     return len(pages)
 
-async def route(message,catalog,model_url,model,tools):
-    """One model call that picks a tool; reflect_on_tool_use=False keeps the tool result authoritative."""
-    from autogen_ext.models.openai import OpenAIChatCompletionClient
-    from autogen_agentchat.agents import AssistantAgent
-    client=OpenAIChatCompletionClient(model=model,base_url=model_url,api_key=os.environ.get('MODEL_API_KEY','local-only'),model_info={'vision':False,'function_calling':True,'json_output':False,'family':'unknown','structured_output':False},temperature=0,max_tokens=200,timeout=60)
-    excerpt=message if len(message)<=1500 else message[:1500]+f'\n…（以下省略，全文共 {len(message)} 字，工具會使用藥師貼上的全文）'
-    agent=AssistantAgent('drug_knowledge_agent',client,tools=tools,reflect_on_tool_use=False,
-        system_message='你是藥品資料庫代理人，只負責替藥師取得或暫存藥品資料，不回答醫療問題。'
-        '有許可證字號時呼叫 fetch_tfda_insert；只有藥名、要求查官方仿單時呼叫 search_tfda_license，並以藥名或成分作為 query；'
-        '藥師直接貼上仿單或藥品說明內容時呼叫 stage_pasted_document，drug_name 填內容中的藥名。每次只呼叫一個工具，不得自行撰寫藥品內容。')
-    try:await asyncio.wait_for(agent.run(task='藥師輸入：\n'+excerpt+'\n/no_think'),timeout=90)
-    finally:await client.close()
-
 def candidates(catalog,query):
     rows=catalog.lookup(query) if query else []
     return [{'license':r['許可證字號'],'name':r.get('中文品名') or '','name_en':r.get('英文品名') or '','ingredient':r.get('主成分略述') or '','match':r['match']} for r in rows[:8]]
-
-def run_request(message,library,catalog,actor,model=None,lock=None):
-    """Agent picks one tool when the model is available; the same tools run by rule otherwise.
-
-    Tools only stage documents. A licence the agent passes must appear in the
-    pharmacist's own text, so a model cannot pick a product on its own.
-    """
-    steps=[];result={'candidates':[],'document':None,'error':'','query':''}
-    allowed={license_code(m[0])[0] for m in LICENSE_RE.finditer(message) if m[1] in LICENSE_PREFIX}
-    def step(title,by,detail,state='done'):steps.append({'title':title,'by':by,'result':detail,'state':state})
-    async def search_tfda_license(query:str)->str:
-        """Search the local official TFDA licence snapshot by drug name or ingredient; candidates go to the pharmacist to pick."""
-        query=query.strip()[:80];rows=candidates(catalog,query)
-        result.update(candidates=rows,query=query);step('查詢食藥署許可證快照','search_tfda_license',f'「{query}」{len(rows)} 筆候選')
-        return json.dumps({'candidates':len(rows)},ensure_ascii=False)
-    async def fetch_tfda_insert(license:str)->str:
-        """Fetch the official electronic package insert of one TFDA licence number and stage it for pharmacist confirmation."""
-        try:
-            number=license_code(license)[0]
-            if number not in allowed:raise ValueError('許可證字號須由藥師提供或從候選中選擇')
-            document=await asyncio.to_thread(fetch_insert,number)
-        except ValueError as error:
-            result['error']=str(error);step('取得食藥署電子仿單','fetch_tfda_insert',str(error),'error');return 'error: '+str(error)
-        result['document']=library.stage(document,actor,message)
-        step('取得食藥署電子仿單','fetch_tfda_insert',f"{document['name']} · 版本 {document['version']} · 核准日 {document['approved']}")
-        return 'staged'
-    async def stage_pasted_document(drug_name:str)->str:
-        """Stage the drug information text the pharmacist pasted, used verbatim, under this drug name for confirmation."""
-        sections=paste_sections(message)
-        name=(paste_name(message) or drug_name or '').strip()[:80]
-        result['document']=library.stage({'kind':'pasted','name':name,'sections':sections},actor,message)
-        step('整理藥師貼上的藥品資料','stage_pasted_document',f'{len(sections)} 段 · {sum(len(s["text"]) for s in sections)} 字 · 原文照存')
-        return 'staged'
-    tools={'search_tfda_license':search_tfda_license,'fetch_tfda_insert':fetch_tfda_insert,'stage_pasted_document':stage_pasted_document}
-    mode='rules'
-    if model and lock and lock.acquire(timeout=1):
-        try:
-            asyncio.run(route(message,catalog,model[0],model[1],list(tools.values())))
-            mode='agent'
-        except Exception as error:step('藥品資料代理人','AutoGen','模型未完成（'+type(error).__name__+'），改用規則判斷','error')
-        finally:lock.release()
-    if not any(s['by'] in tools for s in steps):
-        kind=classify_input(message)
-        if mode=='agent':step('藥品資料代理人','AutoGen','模型沒有呼叫工具，改用規則判斷','error')
-        mode='rules'
-        if kind=='license':asyncio.run(fetch_tfda_insert(next(iter(allowed),message)))
-        elif kind=='pasted':asyncio.run(stage_pasted_document(''))
-        elif kind=='name':asyncio.run(search_tfda_license(name_query(message)))
-    doc=result['document']
-    if doc:message_text=f"已暫存「{doc['name'] or '未命名藥品'}」的{'食藥署電子仿單' if doc['kind']=='tfda' else '貼上內容'}，請核對後按「寫入藥品資料庫」。寫入前不會用於任何檢查。"
-    elif result['error']:message_text=result['error']
-    elif result['query']:message_text=(f"在官方許可證快照找到 {len(result['candidates'])} 筆「{result['query']}」的候選產品，請選擇實際產品，系統再向食藥署取得該許可證的電子仿單。" if result['candidates'] else f"官方許可證快照找不到「{result['query']}」。可改輸入許可證字號，或直接貼上仿單內容。")
-    else:message_text='這段文字不像藥品資料。要更新藥品資料，請輸入許可證字號、「查 某藥 的仿單」，或直接貼上仿單內容。'
-    return {**result,'steps':steps,'mode':mode,'message':message_text}

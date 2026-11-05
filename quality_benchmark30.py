@@ -17,6 +17,23 @@ import uuid
 from datetime import datetime, timezone
 
 
+def agent_intake(call, text, deadline):
+    """Chat input goes to the pharmacist agent (needs MODEL_URL with tool calling); wait for the run and any review it started."""
+    run_id = call('POST', '/api/agent', {'message': text})['id']
+    while True:
+        run = call('GET', '/api/agent/' + run_id)
+        if run['status'] != 'running':
+            break
+        if time.perf_counter() > deadline:
+            call('POST', '/api/agent/cancel', {'id': run_id})
+            raise TimeoutError('Agent 逾時：' + run_id)
+        time.sleep(.2)
+    for action in run.get('actions', []):
+        while action.get('type') == 'review' and call('GET', '/api/jobs/' + action['job'])['status'] == 'running':
+            time.sleep(.1)
+    return {'patient': run.get('patient'), 'steps': run.get('steps'), 'message': run.get('reply') or run.get('error'), 'action': 'agent', 'agent_run': run}
+
+
 def save(path, value):
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2, default=str), encoding='utf-8')
 
@@ -266,7 +283,7 @@ def run(args):
             return res.json()
         def stage(text):
             start = time.perf_counter()
-            intake = call('POST', '/api/workflow', {'message': text})
+            intake = agent_intake(call, text, start+args.timeout)
             if not intake.get('patient') or intake.get('action') in {'ambiguous','identity_conflict','need_identity'}:
                 raise ValueError('病人身分未完成：'+json.dumps(intake, ensure_ascii=False))
             jid = call('POST','/api/review', {'use_model': args.use_model})['id']
@@ -329,7 +346,7 @@ def run(args):
                     before = patient
                 r['completed'] = all(s['checks']['完成檢查'] for s in r['stages'])
                 if len(c['steps']) == 2:
-                    repeat = call('POST','/api/workflow', {'message': c['steps'][1]})
+                    repeat = agent_intake(call, c['steps'][1], time.perf_counter()+args.timeout)
                     events.append({'dedup_repeat': repeat})
                     r['checks']['重送不重複新增'] = fingerprint(before) == fingerprint(repeat.get('patient'))
                 r['automatic_pass'] = r['completed'] and all(r['checks'].values()) and all(

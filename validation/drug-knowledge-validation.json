@@ -3,7 +3,7 @@
   "checks": [
     "license_numbers_map_to_getdrugdoc_codes",
     "insert_xml_decodes_entities_base64_and_stops_at_content",
-    "chat_input_routes_licence_name_and_pasted_text",
+    "agent_fetches_only_licences_the_pharmacist_wrote",
     "fetched_insert_is_staged_and_not_retrieved_before_confirmation",
     "confirmed_insert_enters_retrieval_with_tfda_version_and_replaces_older_copy",
     "pasted_text_is_retrievable_but_never_auto_classifies_a_pair",

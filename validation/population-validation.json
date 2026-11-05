@@ -1,7 +1,7 @@
 {
   "all_passed": true,
   "checks": [
-    "exact_short_message_triggers_immediate_alert_without_brand_or_request",
+    "single_medication_entry_triggers_immediate_alert_without_brand_or_request",
     "one_medication_no_dose_still_checked",
     "original_label_quote_and_page_attached",
     "single_medication_report_finishes_without_model_wait",

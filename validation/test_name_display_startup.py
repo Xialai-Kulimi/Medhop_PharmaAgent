@@ -6,17 +6,21 @@ with tempfile.TemporaryDirectory(dir=ROOT/'runtime') as folder:
  os.environ['MEDLINK_REQUIRE_LOGIN']='0'
  from fastapi.testclient import TestClient
  import asgi
+ from agent_harness import seed,ask
  with TestClient(asgi.app,base_url='http://127.0.0.1') as c:
   asgi.core.model_status=lambda:{'status':'not_checked_in_isolated_test'}
   assert c.get('/api/patients').json()['patients']==[]
-  p=c.post('/api/workflow',json={'message':'新病人王小明，68歲男性'}).json()['patient'];assert p['name']=='王小明'
+  p=seed(c,'王小明',age=68,sex='男')['patient'];assert p['name']=='王小明'
   assert c.get('/api/patients').json()['patients'][0]['name']=='王小明'
   b=c.get('/api/bootstrap').json();assert b['workflow']['patient'] is None and len(b['workflow']['patients'])==1
   assert c.get('/api/patients').json()['patient'] is None
-  need=c.post('/api/workflow',json={'message':'目前服用 Aspirin 100mg，一天一次'}).json();assert need['action']=='need_identity'
-  p2=c.post('/api/workflow',json={'message':'新病人王大明，55歲男性'}).json()['patient'];assert p2['name']=='王大明' and p2['id']!=p['id']
+  # After a reload no patient is selected, so a medication-only message cannot land on the previous patient.
+  need=ask(c,'目前服用 Aspirin 100mg，一天一次',[('add_medications',{'medications':[{'name':'Aspirin','dose':'100mg','frequency':'一天一次'}]})])
+  assert need['patient'] is None and '沒有選擇病人' in need['results'][0]['error'] and not asgi.core.STORE.get(p['id'])['medications']
+  p2=seed(c,'王大明',age=55,sex='男')['patient'];assert p2['name']=='王大明' and p2['id']!=p['id']
   c.post('/api/patients/reset',json={})
-  same=c.post('/api/workflow',json={'message':'病人王小明，68歲男性'}).json()['patient'];assert same['id']==p['id']
+  same=ask(c,'病人王小明，68歲男性',[('search_patients',{'query':'王小明'}),('select_patient',{'patient_id':p['id']})])
+  assert [x['id'] for x in same['results'][0]['patients']]==[p['id']] and same['patient']['id']==p['id']
   with sqlite3.connect(Path(folder)/'records.sqlite3') as db:assert db.execute('SELECT name FROM patients WHERE id=?',(p['id'],)).fetchone()[0]=='王○○'
   db.close()
   html=c.get('/').text;assert '<title>藥你安心：藥事安全Agent</title>' in html

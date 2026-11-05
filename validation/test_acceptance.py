@@ -5,6 +5,8 @@ ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
 from governance import PrivateStore,ReviewGate,Catalog,drafts
 from workflow import pair_evidence
+from agent_harness import stored
+import record_tools
 examples=json.loads((ROOT/'data/examples.json').read_text(encoding='utf-8'))
 pages=json.loads((ROOT/'data/pharma_pages.json').read_text(encoding='utf-8'))
 checks=[]
@@ -14,7 +16,7 @@ def blocked(call):
     raise AssertionError('Gate must block')
 with tempfile.TemporaryDirectory(dir=ROOT/'runtime') as folder:
     s=PrivateStore(Path(folder)/'test.sqlite');g=ReviewGate(s)
-    p=s.message('one',examples[5]['text'])['patient'];rid='gate-test';a=pair_evidence(p,pages)
+    p=stored(s,'one','黃○雄',[('Amlodipine','5mg','QD'),('Sertraline','100mg','QD'),('Omeprazole','40mg','QD'),('Warfarin','5mg','QD'),("St. John's Wort",'','','reported')],age=45,sex='男');rid='gate-test';a=pair_evidence(p,pages)
     s.save_review(rid,p,{'assessment':a,'answer':'待藥師確認'})
     r=g.report('one',rid);assert r['state']=='handoff' and r['reasons'];checks.append('dual_drafts_and_handoff')
     blocked(lambda:g.delivery('one',rid));blocked(lambda:g.report('two',rid));checks.append('unapproved_and_cross_session_delivery_blocked')
@@ -28,15 +30,13 @@ with tempfile.TemporaryDirectory(dir=ROOT/'runtime') as folder:
     g.approve('one',rid,'test-pharmacist',resolutions,True)
     assert 'test-pharmacist' in g.delivery('one',rid);checks.append('explicit_pharmacist_approval_delivery')
     blocked(lambda:g.save_draft('one',rid,'other','other'));checks.append('approved_report_immutable')
-    s.message('one','過敏史：待藥師補充確認')
+    record_tools.edit_patient(s,'one',{'allergies':'待藥師補充確認'})
     blocked(lambda:g.delivery('one',rid));checks.append('patient_version_change_blocks_old_delivery')
-    r=s.message('privacy','姓名：王小明，68歲男性\n電話：0912345678\n目前服用 Amlodipine 5mg QD')
-    assert r['patient']['name']=='王小明'
-    assert '0912345678' not in json.dumps(r,ensure_ascii=False)
-    again=s.message('privacy2','姓名：王小明，68歲男性')
-    assert again['patient']['id']==r['patient']['id'];checks.append('full_display_name_with_hmac_lookup_and_encrypted_storage')
+    r=stored(s,'privacy','王小明',[('Amlodipine','5mg','QD')],age=68,sex='男')
+    assert r['name']=='王小明'
+    assert [x['id'] for x in s.find_by_name('王小明')]==[r['id']];checks.append('full_display_name_with_hmac_lookup_and_encrypted_storage')
     raw=(Path(folder)/'test.sqlite').read_bytes()
-    assert '王小明'.encode() not in raw and b'0912345678' not in raw;checks.append('identity_original_encrypted_at_rest')
+    assert '王小明'.encode() not in raw;checks.append('identity_original_encrypted_at_rest')
 c=Catalog(ROOT);assert len(c.rows)==24839
 assert all(r['有效日期']>='2026/10/23' for r in c.rows)
 assert c.lookup('Amlodipine');checks.append('official_nonrevoked_unexpired_catalog')

@@ -1,11 +1,9 @@
 from pathlib import Path
 import os,tempfile,sys,json,time,gc,sqlite3
 ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT))
-from workflow import medications,stamp
+from workflow import stamp
 from label_interactions import repair_compounds
 text='今天醫師新增撲菌特錠 BAKTAR，成分是 Sulfamethoxazole 與 Trimethoprim，一天三餐飯後吃'
-parsed=medications(text)
-assert len(parsed)==1 and parsed[0]['name']=='BAKTAR' and parsed[0]['frequency']=='一天三餐飯後吃'
 with tempfile.TemporaryDirectory(dir=ROOT/'runtime') as folder:
  os.environ['MEDLINK_RUNTIME']=folder
  os.environ['MEDLINK_REQUIRE_LOGIN']='0'
@@ -14,14 +12,16 @@ with tempfile.TemporaryDirectory(dir=ROOT/'runtime') as folder:
  with TestClient(asgi.app,base_url='http://127.0.0.1') as c:
   def post(path,body):
    r=c.post(path,json=body);assert r.status_code==200,r.text;return r.json()
-  post('/api/workflow',{'message':'新病人測試甲，32歲女性，目前懷孕12週。病史有第二型糖尿病，目前仍服用 Glibenclamide，一天一次'})
-  result=post('/api/workflow',{'message':text})
+  from agent_harness import seed,ask
+  seed(c,'測試甲',[('Glibenclamide','','一天一次')],history=['第二型糖尿病'],age=32,sex='女',pregnancy='pregnant',pregnancy_weeks=12)
+  add=('add_medications',{'medications':[{'name':'BAKTAR','frequency':'一天三餐飯後吃','kind':'new_order'}]})
+  run=ask(c,text,[add]);result={'patient':run['patient'],**run['alerts']}
   active=[m for m in result['patient']['medications'] if m['status']=='active']
   assert len(active)==2,active
   assert len(result['interaction_alerts'])==1 and len(result['patient_alerts'])==1
   assert result['interaction_alert_sources'][0]['page']==4 and 'Glibenclamide' in result['interaction_alert_sources'][0]['text']
-  result2=post('/api/workflow',{'message':text})
-  assert len([m for m in result2['patient']['medications'] if m['status']=='active'])==2
+  again=ask(c,text,[add]);assert 'update_medication' in again['results'][0]['error']
+  assert len([m for m in again['patient']['medications'] if m['status']=='active'])==2
   jobid=post('/api/review',{'use_model':True})['id']
   for _ in range(300):
    job=c.get('/api/jobs/'+jobid).json()
@@ -50,4 +50,4 @@ with tempfile.TemporaryDirectory(dir=ROOT/'runtime') as folder:
    assert db.execute("SELECT COUNT(*) FROM patient_meds WHERE patient_id=? AND status='component'",(pid,)).fetchone()[0]==2
    assert db.execute('SELECT frequency FROM patient_meds WHERE id=?',(parent['id'],)).fetchone()[0]=='一天三餐飯後吃'
  gc.collect()
-print('PASS: compound parsing, immediate dual alerts, model-independent report, original page citation, repeat merge, ingredient isolation, legacy repair, delivery gate')
+print('PASS: compound entry, immediate dual alerts, model-independent report, original page citation, repeat merge, ingredient isolation, legacy repair, delivery gate')

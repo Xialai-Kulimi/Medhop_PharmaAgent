@@ -15,8 +15,9 @@ with tempfile.TemporaryDirectory(dir=ROOT/"runtime",ignore_cleanup_errors=True) 
  print("API imported",flush=True)
  with TestClient(asgi.app,base_url='http://127.0.0.1') as c:
   print("API started",flush=True)
-  response=c.post('/api/workflow',json={'message':'新病人研究測試甲，60歲男性。\n目前用藥：\nSildenafil 50mg PRN\nTadalafil 5mg QD'});assert response.status_code==200,response.text
-  data=response.json();assert len(data['interaction_alerts'])==1,data
+  from agent_harness import seed
+  run=seed(c,'研究測試甲',[('Sildenafil','50mg','PRN'),('Tadalafil','5mg','QD')],age=60,sex='男')
+  data={'patient':run['patient'],**run['alerts']};assert len(data['interaction_alerts'])==1,data
   assert '降低血壓' in data['interaction_alerts'][0]['message']
   assert data['interaction_alert_sources'][0]['url'].startswith('https://labeling.pfizer.com/')
   print("immediate alert passed",flush=True)
