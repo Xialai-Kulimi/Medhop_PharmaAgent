@@ -4,3 +4,5 @@
 .quick-check .dispensing-actions,.quick-check .dispensing-edit{display:none}
 .quick-check-add{margin-top:12px}
 .welcome-message .intro-copy{white-space:pre-line}
+.dev-log-link{margin-left:16px;font-size:13px;color:#5b6475;text-decoration:none;border:1px solid #d8dde6;border-radius:999px;padding:2px 10px;white-space:nowrap}
+.dev-log-link:hover{color:#1f3d55;border-color:#9fb3c8}

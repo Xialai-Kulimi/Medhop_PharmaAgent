@@ -64,9 +64,25 @@ with tempfile.TemporaryDirectory(dir=ROOT/'runtime') as folder:
   r=ask(c,'你好',[('drop_database',{}),('answer_without_tools',{'reason':'打招呼'})],reply='你好，請問要處理哪位病人？[P3]')
   assert '沒有 drop_database' in r['results'][0]['error'] and r['reply'].startswith('你好，請問要處理哪位病人？') and '[P3]' not in r['reply']
   checks+=['unknown_tools_are_reported_back','citations_must_match_sources_found_in_this_message']
+  asgi.DEV=True
+  r=ask(c,'開發紀錄測試',[('answer_without_tools',{'reason':'測試'})],reply='好')
+  entry=json.loads((Path(folder)/'agent-log.jsonl').read_text(encoding='utf-8').splitlines()[-1])
+  assert entry['message']=='開發紀錄測試' and entry['reply']=='好' and entry['status']=='done' and entry['model_messages'][0]['role']=='system' and entry['steps'][1]['by']=='answer_without_tools'
+  page=c.get('/api/dev/agent-log');assert page.status_code==200 and '開發紀錄測試' in page.text and c.get('/api/bootstrap').json()['dev']
+  asgi.DEV=False;assert c.get('/api/dev/agent-log').status_code==404
+  checks.append('dev_mode_logs_each_run_and_shows_it')
   pharmacist_agent.call_model=model;asgi.core.MODEL_URL='http://127.0.0.1:9/v1'
   run=wait(c,'/api/agent/'+c.post('/api/agent',json={'message':'新病人王大明'}).json()['id'])
   assert run['status']=='error' and '無法連線' in run['error'] and len(patients())==3
   checks.append('without_a_model_nothing_is_guessed_and_the_error_is_shown')
+  c.post('/api/patients/reset',json={})
+  r=ask(c,'有一位剛結婚的夫人',[('search_patients',{'query':'王'}),('select_patient',{'patient_id':p['id']})])
+  assert '沒有提到' in r['results'][1]['error'] and r['patient'] is None and p['id'] in [x['id'] for x in r['patient_candidates']]
+  c.post('/api/patients/select',json={'id':p['id']})
+  r=ask(c,'他其實叫王大華',[('update_patient_profile',{'name':'王大華'})])
+  assert '編輯基本資料' in r['results'][0]['error'] and asgi.core.STORE.get(p['id'])['name']=='王小明'
+  r=ask(c,'新病人陳小芳，40歲女性',[('create_patient',{'name':'陳小芳','age':40,'sex':'女'})])
+  r=ask(c,'打錯了，是陳曉芳',[('update_patient_profile',{'name':'陳曉芳'})]);assert r['patient']['name']=='陳曉芳'
+  checks+=['agent_selects_only_patients_the_pharmacist_named','only_names_of_patients_created_in_this_conversation_can_be_corrected']
  result={'all_passed':True,'checks':checks,'isolated_runtime':True,'model':'scripted tool calls; no model server'}
  (ROOT/'validation/pharmacist-agent-validation.json').write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8');print(json.dumps(result,ensure_ascii=False))

@@ -16,7 +16,10 @@
     "licence_must_come_from_the_pharmacist",
     "unknown_tools_are_reported_back",
     "citations_must_match_sources_found_in_this_message",
-    "without_a_model_nothing_is_guessed_and_the_error_is_shown"
+    "dev_mode_logs_each_run_and_shows_it",
+    "without_a_model_nothing_is_guessed_and_the_error_is_shown",
+    "agent_selects_only_patients_the_pharmacist_named",
+    "only_names_of_patients_created_in_this_conversation_can_be_corrected"
   ],
   "isolated_runtime": true,
   "model": "scripted tool calls; no model server"

@@ -20,6 +20,8 @@ from workflow import key, AGENT_INPUT_SOURCE
 # login-20261105: every /api/ call needs a signed-in pharmacist with a plan; validation scripts set MEDLINK_REQUIRE_LOGIN=0.
 REQUIRE_LOGIN=os.environ.get('MEDLINK_REQUIRE_LOGIN','1')!='0'
 OPEN_PATHS=('/api/auth/','/api/subscription/')
+# Development only: every agent run is appended to runtime/agent-log.jsonl and shown at /api/dev/agent-log. Contains raw messages.
+DEV=os.environ.get('MEDHOP_DEV')=='1'
 
 class Input(BaseModel):
     model_config=ConfigDict(extra='forbid')
@@ -332,7 +334,7 @@ async def subscription_checkout(body:Checkout,request:Request):
 async def bootstrap(request:Request):
     # A fresh page starts with no selected case; existing records remain searchable.
     core.STORE.reset(request.state.sid);pharmacist_agent.forget(request.state.sid)
-    return {'stats':core.CORPUS.stats(),'model':await asyncio.to_thread(core.model_status),'examples':core.CORPUS.examples,'record':core.read_record(request.state.sid),'repositories':core.CORPUS.manifest['repositories'],'extraction':core.CORPUS.manifest['extraction'],'workflow':{'patient':core.STORE.active(request.state.sid),'patients':core.STORE.list()},'government':app.state.catalog.meta,'limitations':['所有系統輸出待藥師確認；資料不足、高風險及無法判定即轉交藥師。','單藥病人條件警示只涵蓋 data/population_rules.json 已核對的原仿單規則；未命中不代表適合孕婦或其他族群。','原 moda-agent 缺少 utils；本版重用原 Agent 類別，搭配另行揭露的相容提示與唯讀工具，不代表原 28 項檢核全數完成。','MedHop 為 PubMed 研究資料；圖譜路徑與完整 GraphRAG 模型推理分別標示，均不等於病人臨床證據。','政府資料僅納入未註銷且未逾期產品；成分候選不能確認病人實際產品或法律分類。','本機完整姓名顯示與加密身分索引不取代藥局帳號權限、全碟加密與個資治理。'],'runtime':{'python':__import__('platform').python_version(),'api':'Uvicorn / FastAPI / Pydantic','hardware_verified':False}}
+    return {'dev':DEV,'stats':core.CORPUS.stats(),'model':await asyncio.to_thread(core.model_status),'examples':core.CORPUS.examples,'record':core.read_record(request.state.sid),'repositories':core.CORPUS.manifest['repositories'],'extraction':core.CORPUS.manifest['extraction'],'workflow':{'patient':core.STORE.active(request.state.sid),'patients':core.STORE.list()},'government':app.state.catalog.meta,'limitations':['所有系統輸出待藥師確認；資料不足、高風險及無法判定即轉交藥師。','單藥病人條件警示只涵蓋 data/population_rules.json 已核對的原仿單規則；未命中不代表適合孕婦或其他族群。','原 moda-agent 缺少 utils；本版重用原 Agent 類別，搭配另行揭露的相容提示與唯讀工具，不代表原 28 項檢核全數完成。','MedHop 為 PubMed 研究資料；圖譜路徑與完整 GraphRAG 模型推理分別標示，均不等於病人臨床證據。','政府資料僅納入未註銷且未逾期產品；成分候選不能確認病人實際產品或法律分類。','本機完整姓名顯示與加密身分索引不取代藥局帳號權限、全碟加密與個資治理。'],'runtime':{'python':__import__('platform').python_version(),'api':'Uvicorn / FastAPI / Pydantic','hardware_verified':False}}
 
 @app.get('/api/patients')
 async def patients(request:Request,search:str=''):return {'patients':core.STORE.list(search[:80]),'patient':core.STORE.active(request.state.sid)}
@@ -480,8 +482,38 @@ def agent_context(sid):
     return types.SimpleNamespace(store=store,catalog=app.state.catalog,library=app.state.drug_library,corpus=lambda:core.CORPUS,
         actor=drug_actor,audit=lambda pid,event,detail:store.audit(pid,event,sid,detail),ensure_idle=ensure_idle,
         start_review=agent_start_review,quick_check=agent_quick_check,alerts=agent_alerts,log_input=agent_log_input,
-        set_acquisition=agent_set_acquisition,enrich=lambda med:store.ingredient_lookup.enrich(med) if getattr(store,'ingredient_lookup',None) else None)
+        set_acquisition=agent_set_acquisition,enrich=lambda med:store.ingredient_lookup.enrich(med) if getattr(store,'ingredient_lookup',None) else None,
+        log_run=agent_dev_log if DEV else None)
 def agent_model():return {'url':core.MODEL_URL,'model':core.MODEL,'headers':core.model_headers()}
+AGENT_LOG_LOCK=threading.Lock()
+def agent_log_path():return core.RUNTIME/'agent-log.jsonl'
+def agent_dev_log(entry):
+    with AGENT_LOG_LOCK,agent_log_path().open('a',encoding='utf-8') as log:log.write(json.dumps(entry,ensure_ascii=False,default=str)+'\n')
+@app.get('/api/dev/agent-log',response_class=HTMLResponse)
+async def dev_agent_log(limit:int=30):
+    if not DEV:return JSONResponse({'error':'只在開發模式（MEDHOP_DEV=1）提供'},status_code=404)
+    import html
+    path=agent_log_path();lines=path.read_text(encoding='utf-8').splitlines()[-max(1,min(limit,300)):] if path.exists() else []
+    esc=lambda value:html.escape(str(value or ''))
+    def turn(m):
+        calls=''.join(f"<div class='call'>→ {esc(c['function']['name'])} <code>{esc(c['function'].get('arguments'))}</code></div>" for c in m.get('tool_calls') or [])
+        return f"<div class='msg {esc(m['role'])}'><b>{esc(m['role'])}</b>{('<pre>'+esc(m.get('content'))+'</pre>') if m.get('content') else ''}{calls}</div>"
+    items=[]
+    for line in reversed(lines):
+        try:e=json.loads(line)
+        except ValueError:continue
+        steps=''.join(f"<li class='{esc(s['state'])}'>{esc(s['title'])} <span>{esc(s['by'])}</span> <i>{esc(s['result'])}</i></li>" for s in e['steps'])
+        items.append(f"<details class='run'><summary><span>{esc(e['time'])}</span> <span>{esc(e['seconds'])} 秒 · {esc(e['status'])} · {esc(e['patient'].get('name') or '無病人')}</span> {esc(e['message'][:80])}</summary>"
+                     f"<h3>藥師</h3><pre>{esc(e['message'])}</pre><h3>步驟</h3><ol>{steps}</ol><h3>回覆</h3><pre>{esc(e['reply'])}</pre>"
+                     +(f"<p class='error'>{esc(e['error'])}</p>" if e.get('error') else '')
+                     +f"<details><summary>模型往返（{len(e['model_messages'])} 則，含系統提示）</summary>{''.join(turn(m) for m in e['model_messages'])}</details></details>")
+    style=('body{font:14px/1.6 -apple-system,"PingFang TC",sans-serif;max-width:1100px;margin:24px auto;padding:0 16px;color:#1d2433;background:#fff}'
+           'h1{font-size:18px}h3{font-size:13px;margin:12px 0 4px;color:#556}pre{white-space:pre-wrap;margin:0;font:13px/1.55 ui-monospace,Menlo,monospace}'
+           '.run{border-top:1px solid #e3e6ee;padding:10px 0}.run>summary{cursor:pointer}.run>summary span{color:#667;margin-right:8px}'
+           'ol{margin:0;padding-left:20px}li span{color:#889;font-size:12px}li.error{color:#b42318}.error{color:#b42318}'
+           '.msg{border-left:2px solid #e3e6ee;padding:4px 10px;margin:6px 0}.msg.tool{border-color:#c9d6f0}.msg.assistant{border-color:#d9cff5}.call code{white-space:pre-wrap}')
+    body=''.join(items) or '<p>還沒有紀錄。</p>'
+    return f"<!doctype html><html lang='zh-Hant'><meta charset='utf-8'><title>Agent 訊息紀錄</title><style>{style}</style><h1>Agent 訊息紀錄（最近 {len(items)} 則，新的在上）</h1><p>檔案：{esc(path)} · <a href='?limit={limit}'>重新整理</a></p>{body}</html>"
 @app.post('/api/agent')
 async def agent_message(body:AgentMessage,request:Request):
     run=pharmacist_agent.start(request.state.sid,body.message,agent_context(request.state.sid),agent_model())

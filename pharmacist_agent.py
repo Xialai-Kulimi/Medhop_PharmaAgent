@@ -7,16 +7,19 @@
 1. 只能寫入「目前病人」，切換病人必須明確呼叫 select_patient 或 create_patient。
 2. 寫入的姓名與藥名必須出現在藥師這一次的訊息裡。
 """
-import copy, json, re, secrets, threading, time, urllib.error, urllib.request
+import copy, hashlib, json, re, secrets, threading, time, urllib.error, urllib.request
 
 import drug_knowledge
 import record_tools
 from workflow import key
 
 MAX_ROUNDS = 12
+LABEL_PART = 3500
 MEMORY_LIMIT = 16
 RUN_TTL = 1800
 RUNS, MEMORY = {}, {}
+# Patients the agent created in the current conversation; only their names may be corrected through the agent.
+CREATED = {}
 LOCK = threading.Lock()
 
 KINDS = {'current', 'new_order', 'reported'}
@@ -39,11 +42,12 @@ SYSTEM = '''你是「藥你安心」藥師 Agent，協助社區藥局的藥師�
 
 依藥師的意思選擇工具：
 1. 藥師提到新病人或提供某位病人的資料：先用 search_patients 查有沒有這位病人。查無才用 create_patient。
-   查到同名病歷時，列出來請藥師確認是哪一位，不要自己猜。
+   查到同名病歷時，列出來請藥師確認是哪一位，不要自己猜。只有部分字相同（例如藥師說「夫人」查到「王夫人」）不算同一位，不要切換。
    姓名只能是人名。訊息裡沒有姓名時先詢問藥師，不要建立病歷，也不要把病情、動作或整句話當成姓名。
 2. 藥師說明病人目前用藥、新處方、自行購買的藥：用 add_medications 加到目前病人。
    kind：current 目前長期用藥、new_order 今天的新處方、reported 病人自述或自行購買。藥名照藥師寫的原文。
    劑量、頻次只填藥師講的內容，沒講就留空，不要自己補（例如不要把「外用」填進劑量）。
+   只有病人實際在用的藥品才加入用藥。生活習慣或「沒有做」的事（例如「不擦防曬」裡的防曬）不是用藥，記在病史。
    停藥、恢復使用、刪除輸入錯誤：set_medication_status；修改藥名、劑量、頻次：update_medication。藥品 id 在目前病人資料裡。
 3. 病史、診斷、過敏，以及和用藥安全有關的生活習慣（例如日曬、運動、飲酒、抽菸、飲食）：update_history，內容用藥師原文的片段。年齡、性別、懷孕、哺乳、身高、體重、更正姓名：update_patient_profile。
 4. 這次訊息新增或變更了目前病人的用藥，而且病人至少有一項使用中的用藥時，最後呼叫 run_medication_review 開始完整檢查。
@@ -52,22 +56,27 @@ SYSTEM = '''你是「藥你安心」藥師 Agent，協助社區藥局的藥師�
    用 check_drug_combination 試算，再依工具結果回答。有目前病人時，include_current_patient 設為 true。
 6. 藥品資料：藥師給許可證字號 → fetch_tfda_insert。
    只有藥名、想找官方仿單 → search_drug_products，show_to_pharmacist 設為 true，讓藥師在畫面上選擇實際產品。
+   用俗名或類別（例如「A 酸」）查不到時，改用成分名或英文名（例如 Isotretinoin）再查一次。
    藥師貼上仿單或藥品說明全文 → stage_pasted_document。
    藥品資料一律要藥師在畫面上按「寫入藥品資料庫」才會生效，你不能代替藥師確認。
 7. 藥品知識問題（適應症、用法、副作用、注意事項等）：只根據仿單原文回答，並在句子後面標示來源編號，例如 [P1]。
-   問的是特定藥品：先用 read_drug_label 列出它的仿單段落，再讀相關段落全文（例如警語及注意事項、病人使用須知、用法及用量）。
+   問的是特定藥品：用 read_drug_label 讀相關段落全文（給 sections，例如警語、禁忌、特殊族群、病人使用須知、用法及用量）；
+   段落分成幾部分時，相關內容可能在後面的部分，要繼續讀完再下結論。
    不確定是哪個藥或要跨藥品找：用 search_drug_labels。
    仿單原文包含原本的 PDF，以及藥師寫入藥品資料庫的食藥署仿單與貼上的資料。
    檢索結果沒有出現不代表仿單沒寫；沒有讀過相關段落全文，不要說「仿單沒有記載」，只能說「目前找到的段落沒有提到」。
 8. 藥師問這位病人上次的檢查結果，或要你整理給病人的白話說明：用 get_latest_review，只根據結果內容說明。
 9. 要切換到既有的病人：search_patients 找到後 select_patient。
-10. 病人資料提到可能影響用藥安全的生活習慣或狀況（例如日曬、飲酒、葡萄柚、運動、開車），完整檢查之外，
-   用 read_drug_label 讀該藥仿單的警語及注意事項、病人使用須知等段落，依原文提醒藥師並標示來源編號；仿單沒有寫的不要提。
+10. 這則訊息為病人加入新的用藥時，完整檢查之外，對每個新加入的藥用 read_drug_label 讀仿單的禁忌、警語、特殊族群段落
+   （sections 設為 ["禁忌","警語","特殊族群"]），找出和這位病人有關的內容：性別與可能懷孕、哺乳、年齡、病史，
+   以及藥師提到的生活習慣（例如日曬、飲酒、運動、開車）。依原文提醒藥師並標示來源編號；仿單沒寫的不要提，找不到仿單就直接說找不到。
+   之後藥師補充了病人條件或生活習慣，也要對目前的用藥做同樣的核對。
 
 規則：
 - 每則訊息至少要呼叫一個工具。只有打招呼、請藥師補充缺少的資料、說明你能做什麼這類不需要任何資料的情況，才呼叫 answer_without_tools。
 - 回答藥品或用藥問題，只能使用這則訊息中工具回傳的內容，不能用自己的醫學知識，也不能沿用先前對話的回答；只能引用這則訊息中工具回傳的來源編號。
 - 開始完整檢查後，不要自己評論藥物之間的交互作用或機轉，結果以畫面上的檢查為準（第 10 點依仿單原文的提醒除外）。
+- 完整檢查只核對藥品之間的組合、已收錄的病人條件規則與仿單來源，不會評估生活習慣；不要說檢查已經考量了它沒有處理的事。
 - 藥品資料庫有哪些資料，以「藥品資料庫最近寫入」和工具結果為準，不要依先前的對話推測；藥師可能已經在畫面上按過寫入。
 - 列出藥品產品時，不要對成分或產品做臨床評論。
 - 一則訊息可能包含好幾件事，依序完成。
@@ -124,9 +133,11 @@ TOOLS = [
     fn('fetch_tfda_insert', '依許可證字號向食藥署取得電子仿單，暫存給藥師確認。許可證字號必須是藥師訊息中出現的。', {'license': S}, ['license']),
     fn('stage_pasted_document', '把藥師這次貼上的仿單或藥品說明全文原文暫存，給藥師確認後寫入藥品資料庫。', {'drug_name': {**S, 'description': '這份資料的藥名'}}, ['drug_name']),
     fn('search_drug_labels', '在仿單原文中檢索，回傳可引用的段落與來源編號。', {'query': {**S, 'description': '藥名加上要查的主題'}}, ['query']),
-    fn('read_drug_label', '讀某個藥品仿單的完整段落。只給 drug：列出含這個藥名的仿單與各段落；再給 document 與 pages：回傳那些段落全文與來源編號。',
-       {'drug': {**S, 'description': '藥名、商品名或許可證字號'}, 'document': {**S, 'description': '上一步列出的 document'},
-        'pages': {'type': 'array', 'items': {'type': 'integer'}, 'description': '要讀的段落頁碼，一次最多 2 個'}}),
+    fn('read_drug_label', '讀某個藥品仿單的段落全文。只給 drug：列出含這個藥名的仿單與段落。給 drug 與 sections（例如 ["禁忌","警語","特殊族群"]）：直接回傳標題符合的段落。'
+       '給 document 與 pages：回傳那些段落。很長的段落分成幾部分，用 part 讀下一部分。',
+       {'drug': {**S, 'description': '藥名、商品名或許可證字號'}, 'sections': {'type': 'array', 'items': S, 'description': '段落標題關鍵字'},
+        'document': {**S, 'description': '列出的 document'}, 'pages': {'type': 'array', 'items': {'type': 'integer'}, 'description': '段落頁碼，一次最多 3 個'},
+        'part': {'type': 'integer', 'description': '長段落的第幾部分，預設 1'}}),
     fn('get_latest_review', '讀取目前病人最近一次完整檢查的結果。'),
     fn('answer_without_tools', '這則訊息不需要讀寫病歷、也不需要任何藥品資料時才使用，例如打招呼、請藥師補充缺少的資料。任何藥品或用藥問題都不能用這個。',
        {'reason': {**S, 'description': '為什麼不需要其他工具'}}, ['reason']),
@@ -299,13 +310,22 @@ class Toolbox:
             return {'error': '已有同名病歷，請藥師確認是哪一位；確認是新的人才設定 confirmed_new_person=true', 'same_name': same,
                     '_summary': f'已有 {len(same)} 筆同名病歷'}
         patient = self.ctx.store.create_patient(self.sid, name, profile)
+        with LOCK:
+            CREATED.setdefault(self.sid, set()).add(patient['id'])
         self.run.selected = True
         self.touch(patient)
         self.ctx.audit(patient['id'], 'patient_created', {'version': patient['version'], 'by': 'pharmacist_agent'})
         return {'patient': brief(patient), '_summary': patient['id']}
 
     def tool_select_patient(self, patient_id):
-        patient = self.ctx.store.select(self.sid, str(patient_id).strip())
+        target = self.ctx.store.get(str(patient_id).strip())
+        if not target:
+            raise ValueError('沒有這個病歷號')
+        # A partial search hit ("夫人" → 王夫人) is not the pharmacist naming that patient; let the pharmacist pick.
+        if not (self.in_message(target.get('name') or '') or self.in_message(target['id'])):
+            self.run.patient_candidates = [{k: target.get(k) for k in ('id', 'name', 'age', 'sex', 'updated')}]
+            raise ValueError(f"藥師沒有提到「{target.get('name') or target['id']}」這個姓名或病歷號；已在畫面列出候選，請藥師點選或說出姓名")
+        patient = self.ctx.store.select(self.sid, target['id'])
         self.run.selected = True
         return {'patient': brief(patient), '_summary': f"{patient.get('name') or ''} · {patient['id']}"}
 
@@ -313,7 +333,11 @@ class Toolbox:
         self.ctx.ensure_idle(self.sid)
         patient = self.active()
         changes = clean_profile(changes, allow_name=True)
-        if changes.get('name'):
+        if changes.get('name') and changes['name'] != patient.get('name'):
+            with LOCK:
+                fresh = patient['id'] in CREATED.get(self.sid, set())
+            if not fresh:
+                raise ValueError('既有病歷的姓名請藥師在右側「編輯基本資料」更正；Agent 只能更正這段對話中剛建立的病人姓名')
             self.require_in_message([changes['name']], '姓名')
         if not changes:
             return {'changed': [], '_summary': '沒有變更'}
@@ -511,22 +535,51 @@ class Toolbox:
         self.run.sources.append(source)
         return source
 
-    def tool_read_drug_label(self, drug='', document='', pages=None):
+    def read_pages(self, document, numbers, part=1):
+        """Whole label sections as citable sources; long sections come in parts the model can page through."""
+        rag = self.ctx.corpus().label_rag
+        found = []
+        for number in list(numbers)[:3]:
+            page = rag.page(str(document), int(number))
+            if not page:
+                continue
+            parts = max(1, -(-len(page['text']) // LABEL_PART))
+            index = min(max(int(part or 1), 1), parts)
+            source = self.cite({**page, 'text': page['text'][(index - 1) * LABEL_PART:index * LABEL_PART]})
+            item = {'id': source['id'], 'title': source['title'], 'text': source['text']}
+            if parts > 1:
+                item.update(part=index, parts=parts, note=f'這段共 {parts} 部分；下一部分用同樣的 document、pages，part={index + 1}' if index < parts
+                            else f'這是最後一部分（共 {parts} 部分）')
+            found.append(item)
+        return found
+
+    def tool_read_drug_label(self, drug='', document='', pages=None, sections=None, part=1):
         rag = self.ctx.corpus().label_rag
         if document and pages:
-            found = []
-            for number in list(pages)[:2]:
-                page = rag.page(str(document), int(number))
-                if page:
-                    source = self.cite(page)
-                    found.append({'id': source['id'], 'title': source['title'], 'text': source['text'][:3500]})
+            found = self.read_pages(document, pages, part)
             if not found:
                 raise ValueError('找不到這些段落；先只給 drug 列出這個藥的仿單段落')
             return {'sources': found, '_summary': '、'.join(f['title'] for f in found)[:80]}
         labels = rag.outline(str(drug))[:5]
         if not labels:
             return {'documents': [], 'note': '沒有找到開頭寫著這個藥名的仿單；可以改用成分名、商品名，或用 search_drug_labels', '_summary': f'「{drug}」0 份仿單'}
-        return {'documents': labels, '_summary': f'「{drug}」{len(labels)} 份仿單'}
+        wanted = [compact(x) for x in sections or [] if compact(x)]
+        if not wanted:
+            return {'documents': labels, '_summary': f'「{drug}」{len(labels)} 份仿單'}
+        label = labels[0]
+        numbers = [p['page'] for p in label['pages'] if any(w in compact(p['title']) for w in wanted)]
+        if not numbers:
+            # The original PDFs have untitled pages; fall back to pages whose text carries the headings.
+            numbers = [p['page'] for p in label['pages'] if any(w in compact(rag.page(label['document'], p['page'])['text']) for w in wanted)][:2]
+        found = self.read_pages(label['document'], numbers, 1)
+        result = {'document': label['document'], 'name': label['name'], 'sources': found,
+                  'other_sections': [p['title'] for p in label['pages'] if p['page'] not in numbers],
+                  '_summary': '、'.join(f['title'] for f in found)[:80] or f"「{drug}」沒有符合的段落"}
+        if len(labels) > 1:
+            result['other_documents'] = [{'document': x['document'], 'name': x['name']} for x in labels[1:]]
+        if not found:
+            result['note'] = '這份仿單沒有標題符合的段落；請從 other_sections 挑段落，用 document 與 pages 讀取'
+        return result
 
     def tool_answer_without_tools(self, reason=''):
         return {'ok': True, 'note': '直接回覆藥師；不要提供任何藥品或醫學內容', '_summary': str(reason)[:60]}
@@ -600,7 +653,7 @@ def run_agent(run, ctx, cfg):
                 result = tools.execute(function.get('name', ''), args)
                 calls_made += 1
                 messages.append({'role': 'tool', 'tool_call_id': call.get('id') or function.get('name', ''),
-                                 'content': json.dumps(result, ensure_ascii=False, default=str)[:8000]})
+                                 'content': json.dumps(result, ensure_ascii=False, default=str)[:12000]})
         else:
             # Out of rounds: ask once more without tools, so the pharmacist hears what was actually done.
             fallback = '這則訊息需要的步驟太多，我先停在這裡；已完成的部分請看上方步驟，其餘請再說一次。'
@@ -639,9 +692,30 @@ def run_agent(run, ctx, cfg):
             memory += [{'role': 'user', 'content': run.message[:4000]},
                        {'role': 'assistant', 'content': run.reply or run.error or '（未回覆）'}]
             del memory[:-MEMORY_LIMIT]
+        status = 'cancelled' if run.stop.is_set() else 'error' if run.error and not run.reply else 'done'
+        # The log is written before the run reports finished, so a reader polling the status always finds the entry.
+        if getattr(ctx, 'log_run', None):
+            try:
+                ctx.log_run(record(run, messages, status))
+            except Exception:
+                pass
         with run.lock:
-            run.status = 'cancelled' if run.stop.is_set() else 'error' if run.error and not run.reply else 'done'
+            run.status = status
             run.finished = time.monotonic()
+
+
+def record(run, messages, status):
+    """One development-log entry: what the pharmacist said, every model turn and tool result, and the reply."""
+    def action(a):
+        if a['type'] == 'drug_document':
+            return {'type': a['type'], 'document': {k: a['document'].get(k) for k in ('id', 'name', 'license', 'version', 'kind', 'status')}}
+        return {k: v for k, v in a.items() if k != 'job_result'}
+    snapshot = run.snapshot()
+    return {'time': time.strftime('%Y-%m-%d %H:%M:%S'), 'id': run.id, 'session': hashlib.sha256(run.session.encode()).hexdigest()[:8],
+            'message': run.message, 'status': status, 'seconds': snapshot['seconds'], 'reply': run.reply, 'error': run.error,
+            'patient': {k: (run.patient or {}).get(k) for k in ('id', 'name')}, 'steps': snapshot['steps'], 'actions': [action(a) for a in run.actions],
+            'sources': [{'id': s['id'], 'title': s.get('title', '')} for s in run.sources],
+            'model_messages': [{k: m[k] for k in ('role', 'content', 'tool_calls', 'tool_call_id') if m.get(k)} for m in messages]}
 
 
 def start(session, message, ctx, cfg):
@@ -666,3 +740,4 @@ def forget(session):
     """A new patient context starts a new conversation so one patient's details never carry into another's."""
     with LOCK:
         MEMORY.pop(session, None)
+        CREATED.pop(session, None)

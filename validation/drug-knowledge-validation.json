@@ -8,6 +8,7 @@
     "confirmed_insert_enters_retrieval_with_tfda_version_and_replaces_older_copy",
     "agent_label_search_and_context_include_saved_inserts",
     "agent_reads_whole_label_sections_by_drug",
+    "label_sections_by_title_and_long_sections_in_parts",
     "pasted_text_is_retrievable_but_never_auto_classifies_a_pair",
     "discard_audit_and_cross_origin_rules"
   ],

@@ -55,6 +55,14 @@ with tempfile.TemporaryDirectory(dir=ROOT/'runtime') as folder:
   read=ask(client,'Zorbatide 的交互作用段落怎麼寫？',[('read_drug_label',{'document':label['document'],'pages':[section['page']]})])
   assert read['results'][0]['sources'][0]['id']=='P1' and 'Quelmazole' in read['results'][0]['sources'][0]['text'] and read['sources'][0]['document']==again['document']['id']
   checks.append('agent_reads_whole_label_sections_by_drug')
+  sec=ask(client,'Zorbatide 的交互作用？',[('read_drug_label',{'drug':'Zorbatide','sections':['交互作用']})])['results'][0]
+  assert sec['document']==label['document'] and [s['title'] for s in sec['sources']]==[section['title']] and sec['other_sections']
+  import pharmacist_agent;pharmacist_agent.LABEL_PART=30
+  first=ask(client,'Zorbatide 的交互作用？',[('read_drug_label',{'document':label['document'],'pages':[section['page']]})])['results'][0]['sources'][0]
+  second=ask(client,'Zorbatide 的交互作用？',[('read_drug_label',{'document':label['document'],'pages':[section['page']],'part':2})])['results'][0]['sources'][0]
+  assert first['parts']>1 and first['part']==1 and second['part']==2 and first['text']!=second['text'] and 'part=2' in first['note']
+  pharmacist_agent.LABEL_PART=3500
+  checks.append('label_sections_by_title_and_long_sections_in_parts')
   pasted=staged_by_agent('請更新以下藥品資料：\n藥品名稱：Velintra\n適應症\n驗證用\n用法用量\n每日一次\n交互作用\nVelintra與Quelmazole併用時應避免。',('stage_pasted_document',{'drug_name':'Velintra'}))
   assert pasted['document']['kind']=='pasted' and pasted['document']['name']=='Velintra'
   assert client.post('/api/drug-knowledge/save',json={'id':pasted['document']['id'],'name':''}).status_code==409

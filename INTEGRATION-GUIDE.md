@@ -54,13 +54,15 @@ Agent 會先查詢同名病歷，查無才建立，接著記錄病史、加入�
 - 病歷：`search_patients`、`create_patient`、`select_patient`、`update_patient_profile`、`update_history`
 - 用藥：`add_medications`、`update_medication`、`set_medication_status`
 - 檢查：`run_medication_review`（完整檢查並保存結果）、`check_drug_combination`（併用試算，不寫入病歷）、`get_latest_review`
-- 藥品資料：`search_drug_products`、`fetch_tfda_insert`、`stage_pasted_document`、`search_drug_labels`（跨仿單檢索）、`read_drug_label`（列出某藥仿單的段落並讀全文）
+- 藥品資料：`search_drug_products`、`fetch_tfda_insert`、`stage_pasted_document`、`search_drug_labels`（跨仿單檢索）、`read_drug_label`（列出某藥仿單的段落，或依標題直接讀禁忌、警語等段落全文；很長的段落分成幾部分讀）
 - `answer_without_tools`：打招呼等不需要資料的訊息
 
 以下防護由工具本身執行，不依賴模型遵守提示：
 
 - 寫入病歷的姓名、藥名、病史與過敏必須是藥師在這段對話中寫過的原文（可以拆成片段，不能改寫、補充或轉成簡體字）；只寫入目前選擇的病人，切換病人須呼叫 `select_patient` 或 `create_patient`。
 - 已有同名病歷時不會合併或直接新增，對話中列出候選病歷讓藥師點選；查到病人但沒有選定時也會列出。
+- 只能切換到藥師在對話中說出姓名或病歷號的病人；只有部分字相同（例如「夫人」查到「王夫人」）時列成候選，不會自動切換。
+- 只能更正這段對話中剛建立的病人姓名；既有病歷改名請用右側「編輯基本資料」。
 - 藥單上已有的藥不會再新增一筆，須改用 `update_medication`；同一藥品的第二種用法仍可由藥師在右側「＋ 新增用藥」輸入。
 - 只抓取藥師寫出的許可證字號；用藥名查詢只列出候選產品，由藥師選擇。抓取或貼上的藥品資料只暫存，藥師按「寫入藥品資料庫」才生效。
 - 回覆只能引用這則訊息中工具回傳的來源編號，對不上的編號會移除並註明。
@@ -68,9 +70,13 @@ Agent 會先查詢同名病歷，查無才建立，接著記錄病史、加入�
 
 Agent 保留同一工作階段最近 8 輪對話，重新整理頁面、換病人或「新增病例」時清除；所以可以先描述用藥、下一則再給姓名。每次送出時，模型也會看到目前病人摘要與藥品資料庫最近寫入的 5 份資料（藥師在畫面上按寫入後，Agent 不必靠記憶判斷）。每則訊息最多 12 輪工具呼叫，用完時請模型就已完成的部分做總結；執行中可按「停止」。
 
+每次為病人加入新的用藥，Agent 會讀該藥仿單的禁忌、警語、特殊族群段落，對照病人條件（性別與可能懷孕、哺乳、年齡、病史）與藥師提到的生活習慣（例如日曬、飲酒），依原文提醒並標示來源；藥師之後補充條件時也會重新對照。完整檢查本身不評估生活習慣。
+
 仿單問答與生活習慣提醒只根據原文：仿單包含原本的 PDF 和藥師寫入藥品資料庫的食藥署仿單、貼上資料。問到特定藥品時，Agent 先列出該藥仿單的段落，再讀警語及注意事項、病人使用須知等段落全文；檢索沒找到不等於仿單沒寫，沒讀過相關段落不能說「仿單沒有記載」。
 
 模型須支援 OpenAI 相容的 tool calling（`tools`、`tool_choice`）。模型無法連線或回應錯誤時，對話直接顯示錯誤，不會改用規則猜測；完整檢查本身（仿單檢索、逐對分類、病人條件與禁忌）不依賴模型。
+
+開發模式：設定 `MEDHOP_DEV=1` 時，每則 Agent 訊息（藥師原話、每輪模型回覆與工具結果、最終回覆）寫入 `runtime/agent-log.jsonl`，並可在 `GET /api/dev/agent-log`（畫面右上角「Agent 訊息紀錄」）查看。紀錄含未遮蔽的原始訊息，只供本機開發。
 
 API：`POST /api/agent`（送出訊息，回傳 `id`）、`GET /api/agent/{id}`（步驟、回覆、動作、目前病人與警示）、`POST /api/agent/cancel`。原 `POST /api/workflow` 與 `POST /api/drug-knowledge/run` 已移除。驗證見 `validation/test_pharmacist_agent.py`；其他驗證腳本以 `validation/agent_harness.py` 依腳本產生工具呼叫，不需要模型。
 

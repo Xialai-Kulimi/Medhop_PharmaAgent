@@ -43,6 +43,8 @@ async function submitAgent(text){
   }catch(err){controls.remove();body.append(el('div','notice warn',err.message));}
   finally{agentRunId=null;setBusy(false);$('#input').focus();scrollEnd();}
 }
+// Development mode only: a header link to the agent run log.
+function devLogLink(){const top=document.querySelector('.top');if(!top||top.querySelector('.dev-log-link'))return;const a=el('a','dev-log-link','Agent 訊息紀錄');a.href='/api/dev/agent-log';a.target='_blank';a.rel='noopener';top.append(a);}
 async function renderAgentAction(body,action){
   if(action.type==='review')return followReview(body,action.job);
   if(action.type==='quick_check')return renderQuickCheck(body,action);

@@ -42,6 +42,8 @@ http://127.0.0.1:8502
 主機 API：`http://127.0.0.1:13305/api/v1`  
 改用其他 OpenAI 相容端點時設定環境變數 `MODEL_URL`、`MODEL`，需要金鑰時另設 `MODEL_API_KEY`（不要寫進檔案或提交到 repo）。
 
+開發時可設定 `MEDHOP_DEV=1`，Agent 每則訊息的完整往返會記錄在 `runtime/agent-log.jsonl`，並可在 `/api/dev/agent-log` 查看（含未遮蔽的原始訊息，只供本機開發）。
+
 對話由藥師 Agent 處理，模型必須支援 OpenAI 相容的 tool calling（`tools`、`tool_choice`）。模型無法連線時，對話會顯示錯誤，不會改用規則猜測；右側病歷編輯與完整檢查本身不依賴模型。工具與防護說明見 `INTEGRATION-GUIDE.md` 的「藥師 Agent：對話輸入」。
 
 
