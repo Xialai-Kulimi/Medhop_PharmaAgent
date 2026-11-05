@@ -37,7 +37,7 @@ def ask(client, message, calls=(), reply='已處理。'):
     plan.append({'role': 'assistant', 'content': reply})
     seen = {'tools': [], 'messages': []}
 
-    def model(cfg, messages, first):
+    def model(cfg, messages, first, final=False):
         seen['tools'] = [m for m in messages if m['role'] == 'tool']
         seen['messages'] = list(messages)
         return plan.pop(0) if plan else {'role': 'assistant', 'content': reply}
@@ -81,7 +81,7 @@ def seed(client, name, meds=(), history=(), allergies=(), review=False, **profil
         calls.append(('add_medications', {'medications': meds}))
     if review:
         calls.append(('run_medication_review', {}))
-    run = ask(client, '新病人' + name + '，' + '、'.join(m['name'] for m in meds), calls)
+    run = ask(client, '新病人' + name + '，' + '、'.join([*history, *allergies, *(m['name'] for m in meds)]), calls)
     failed = [s for s in run['steps'] if s['state'] == 'error']
     assert not failed, failed
     return run

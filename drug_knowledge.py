@@ -161,6 +161,14 @@ class DrugLibrary:
         doc=self.get(ident,False)
         if doc['status']!='staged':raise ValueError('這份藥品資料已處理過')
         with self.store.connect() as db:db.execute("UPDATE drug_documents SET status='discarded' WHERE id=?",(ident,))
+    def recent(self,limit=5):
+        with self.store.connect() as db:rows=db.execute("SELECT * FROM drug_documents WHERE status='saved' ORDER BY saved DESC LIMIT ?",(limit,)).fetchall()
+        return [preview(r,False) for r in rows]
+    def saved_versions(self,licenses):
+        licenses=[l for l in licenses if l]
+        if not licenses:return {}
+        with self.store.connect() as db:rows=db.execute(f"SELECT license,version FROM drug_documents WHERE status='saved' AND license IN ({','.join('?'*len(licenses))})",licenses).fetchall()
+        return {r['license']:r['version'] for r in rows}
     def saved(self,full=True):
         with self.store.connect() as db:rows=db.execute("SELECT * FROM drug_documents WHERE status='saved' ORDER BY saved").fetchall()
         return [preview(r,full) for r in rows]
@@ -201,4 +209,6 @@ def attach(corpus,docs):
 
 def candidates(catalog,query):
     rows=catalog.lookup(query) if query else []
-    return [{'license':r['許可證字號'],'name':r.get('中文品名') or '','name_en':r.get('英文品名') or '','ingredient':r.get('主成分略述') or '','match':r['match']} for r in rows[:8]]
+    # The snapshot repeats each ingredient per strength (A;;B;;A;;B); list each once.
+    ingredient=lambda raw:'、'.join(dict.fromkeys(p.strip() for p in re.split(r';+|；',raw or '') if p.strip()))
+    return [{'license':r['許可證字號'],'name':r.get('中文品名') or '','name_en':r.get('英文品名') or '','ingredient':ingredient(r.get('主成分略述')),'match':r['match']} for r in rows[:8]]

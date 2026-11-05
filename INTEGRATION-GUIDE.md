@@ -54,19 +54,21 @@ Agent 會先查詢同名病歷，查無才建立，接著記錄病史、加入�
 - 病歷：`search_patients`、`create_patient`、`select_patient`、`update_patient_profile`、`update_history`
 - 用藥：`add_medications`、`update_medication`、`set_medication_status`
 - 檢查：`run_medication_review`（完整檢查並保存結果）、`check_drug_combination`（併用試算，不寫入病歷）、`get_latest_review`
-- 藥品資料：`search_drug_products`、`fetch_tfda_insert`、`stage_pasted_document`、`search_drug_labels`
+- 藥品資料：`search_drug_products`、`fetch_tfda_insert`、`stage_pasted_document`、`search_drug_labels`（跨仿單檢索）、`read_drug_label`（列出某藥仿單的段落並讀全文）
 - `answer_without_tools`：打招呼等不需要資料的訊息
 
 以下防護由工具本身執行，不依賴模型遵守提示：
 
-- 寫入病歷的姓名與藥名必須出現在藥師這則訊息裡；只寫入目前選擇的病人，切換病人須呼叫 `select_patient` 或 `create_patient`。
+- 寫入病歷的姓名、藥名、病史與過敏必須是藥師在這段對話中寫過的原文（可以拆成片段，不能改寫、補充或轉成簡體字）；只寫入目前選擇的病人，切換病人須呼叫 `select_patient` 或 `create_patient`。
 - 已有同名病歷時不會合併或直接新增，對話中列出候選病歷讓藥師點選；查到病人但沒有選定時也會列出。
 - 藥單上已有的藥不會再新增一筆，須改用 `update_medication`；同一藥品的第二種用法仍可由藥師在右側「＋ 新增用藥」輸入。
 - 只抓取藥師寫出的許可證字號；用藥名查詢只列出候選產品，由藥師選擇。抓取或貼上的藥品資料只暫存，藥師按「寫入藥品資料庫」才生效。
 - 回覆只能引用這則訊息中工具回傳的來源編號，對不上的編號會移除並註明。
 - 藥師原話以「藥師對話原文」記入該病人的異動紀錄（姓名與電話已遮蔽），每則訊息每位病人一筆。
 
-Agent 保留同一工作階段最近 8 輪對話，重新整理頁面、換病人或「新增病例」時清除。每則訊息最多 8 輪工具呼叫，執行中可按「停止」。
+Agent 保留同一工作階段最近 8 輪對話，重新整理頁面、換病人或「新增病例」時清除；所以可以先描述用藥、下一則再給姓名。每次送出時，模型也會看到目前病人摘要與藥品資料庫最近寫入的 5 份資料（藥師在畫面上按寫入後，Agent 不必靠記憶判斷）。每則訊息最多 12 輪工具呼叫，用完時請模型就已完成的部分做總結；執行中可按「停止」。
+
+仿單問答與生活習慣提醒只根據原文：仿單包含原本的 PDF 和藥師寫入藥品資料庫的食藥署仿單、貼上資料。問到特定藥品時，Agent 先列出該藥仿單的段落，再讀警語及注意事項、病人使用須知等段落全文；檢索沒找到不等於仿單沒寫，沒讀過相關段落不能說「仿單沒有記載」。
 
 模型須支援 OpenAI 相容的 tool calling（`tools`、`tool_choice`）。模型無法連線或回應錯誤時，對話直接顯示錯誤，不會改用規則猜測；完整檢查本身（仿單檢索、逐對分類、病人條件與禁忌）不依賴模型。
 

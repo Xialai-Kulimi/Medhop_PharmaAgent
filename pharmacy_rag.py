@@ -4,7 +4,7 @@ from workflow import canonical,literal_positions,source_labels
 
 def searchable(text):
     # Deterministic Chinese bigrams alongside native Latin identifiers; no LLM aliases.
-    text=canonical(text)
+    text=canonical(text).replace('晒','曬')
     grams=[]
     for phrase in re.findall(r'[\u4e00-\u9fff]+',text):
         grams.extend('zh'+''.join(format(ord(c),'x') for c in phrase[i:i+2]) for i in range(len(phrase)-1))
@@ -16,6 +16,43 @@ class PharmacyRAG:
         self.corpus=corpus;self.index=LexicalIndex(searchable(c['text']) for c in corpus.chunks)
         self.first={p['file']:p for p in corpus.pages if p['page']==1}
         self.page_map={(p['file'],p['page']):p for p in corpus.pages}
+    def search(self,query,limit=6):
+        """Free-text lookup over the same chunks the review uses: the original PDFs plus pharmacist-confirmed documents."""
+        scores=self.index.scores(searchable(query))
+        # A query word found in the opening of only a few labels names the drug; rank those labels first.
+        flat=lambda text:re.sub(r'\s+','',canonical(text)).casefold()
+        scope=set()
+        for term in {t for t in re.split(r'[\s,，、;；]+',query) if len(t)>=2}:
+            hits={f for f,p in self.first.items() if flat(term) in flat(p['text'][:1400])}
+            if 0<len(hits)<=3:scope|=hits
+        selected,pages,files=[],set(),{}
+        for i in sorted(range(len(scores)),key=lambda j:(self.corpus.chunks[j]['file'] not in scope,-scores[j],j)):
+            if len(selected)>=limit:break
+            if scores[i]<=0:continue
+            chunk=self.corpus.chunks[i];signature=(chunk['file'],chunk['page'])
+            if signature in pages or files.get(chunk['file'],0)>=(4 if chunk['file'] in scope else 2):continue
+            pages.add(signature);files[chunk['file']]=files.get(chunk['file'],0)+1
+            selected.append({'kind':'藥事仿單'+(' · OCR，需核對 PDF' if chunk.get('ocr') else ''),'title':chunk['file']+' · 第 '+str(chunk['page'])+' 頁','file':chunk['file'],'page':chunk['page'],
+                             'text':chunk['text'],'full_text':self.page_map[signature]['text'],'ocr':bool(chunk.get('ocr')),'origin':'moda-agent/data/drug_info/'+chunk['file'],
+                             'url':'/documents/'+chunk['file']+'#page='+str(chunk['page']),**source_labels(chunk)})
+        return selected
+    def outline(self,drug):
+        """Labels whose opening names the drug, with their pages, so a section can be read in full."""
+        flat=lambda text:re.sub(r'\s+','',canonical(text)).casefold()
+        name=flat(drug)
+        if len(name)<2:return []
+        found=[]
+        for file,first in self.first.items():
+            if name not in flat(first['text'][:1400]):continue
+            pages=sorted((p for (f,_),p in self.page_map.items() if f==file),key=lambda p:p['page'])
+            found.append({'document':file,'name':(first.get('title') or file).split(' · ')[0],'kind':first.get('kind') or '藥事仿單 PDF',
+                          'pages':[{'page':p['page'],'title':p.get('title') or f"第 {p['page']} 頁"} for p in pages]})
+        return found
+    def page(self,document,number):
+        page=self.page_map.get((document,number))
+        if not page:return None
+        return {'kind':page.get('kind') or '藥事仿單','title':page.get('title') or f'{document} · 第 {number} 頁','file':document,'page':number,'text':page['text'],'full_text':page['text'],
+                'ocr':bool(page.get('ocr')),'origin':'moda-agent/data/drug_info/'+document,'url':'/documents/'+document+'#page='+str(number),**source_labels(page)}
     def retrieve(self,patient):
         meds=[m for m in patient.get('medications',[]) if m['status']=='active']
         sources=[];queries=[];seen={};selected_pages=set()

@@ -45,6 +45,16 @@ with tempfile.TemporaryDirectory(dir=ROOT/'runtime') as folder:
   again=post('/api/drug-knowledge/fetch',{'license':'衛署藥輸字第000001號'});assert post('/api/drug-knowledge/save',{'id':again['document']['id']})['message'].count('取代')==1
   assert [d['id'] for d in client.get('/api/drug-knowledge').json()['documents']]==[again['document']['id']]
   checks.append('confirmed_insert_enters_retrieval_with_tfda_version_and_replaces_older_copy')
+  asked=ask(client,'Zorbatide 和 Quelmazole 的交互作用仿單怎麼寫？',[('search_drug_labels',{'query':'Zorbatide Quelmazole 交互作用'})])
+  found=[s for s in asked['sources'] if s.get('document')==again['document']['id']];assert found and found[0]['id']=='P1' and 'Quelmazole' in found[0]['text'],asked['sources']
+  assert '藥品資料庫最近寫入：' in asked['model_messages'][0]['content'] and again['document']['name'] in asked['model_messages'][0]['content']
+  assert asgi.app.state.drug_library.saved_versions(['衛署藥輸字第000001號'])=={'衛署藥輸字第000001號':'2'}
+  checks.append('agent_label_search_and_context_include_saved_inserts')
+  outline=ask(client,'Zorbatide 的交互作用段落怎麼寫？',[('read_drug_label',{'drug':'Zorbatide'})])['results'][0]['documents']
+  label=next(d for d in outline if d['document']==again['document']['id']);section=next(p for p in label['pages'] if '交互作用' in p['title'])
+  read=ask(client,'Zorbatide 的交互作用段落怎麼寫？',[('read_drug_label',{'document':label['document'],'pages':[section['page']]})])
+  assert read['results'][0]['sources'][0]['id']=='P1' and 'Quelmazole' in read['results'][0]['sources'][0]['text'] and read['sources'][0]['document']==again['document']['id']
+  checks.append('agent_reads_whole_label_sections_by_drug')
   pasted=staged_by_agent('請更新以下藥品資料：\n藥品名稱：Velintra\n適應症\n驗證用\n用法用量\n每日一次\n交互作用\nVelintra與Quelmazole併用時應避免。',('stage_pasted_document',{'drug_name':'Velintra'}))
   assert pasted['document']['kind']=='pasted' and pasted['document']['name']=='Velintra'
   assert client.post('/api/drug-knowledge/save',json={'id':pasted['document']['id'],'name':''}).status_code==409

@@ -2,6 +2,9 @@
   "all_passed": true,
   "checks": [
     "a_name_the_pharmacist_did_not_write_is_refused",
+    "names_and_drugs_from_earlier_turns_are_accepted",
+    "repeated_tool_errors_tell_the_model_to_stop",
+    "history_keeps_the_pharmacists_words",
     "one_message_creates_patient_history_medications_and_starts_review",
     "drugs_not_in_the_message_are_refused_individually",
     "original_words_kept_once_with_name_and_phone_redacted",
