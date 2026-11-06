@@ -84,5 +84,9 @@ with tempfile.TemporaryDirectory(dir=ROOT/'runtime') as folder:
   r=ask(c,'新病人陳小芳，40歲女性',[('create_patient',{'name':'陳小芳','age':40,'sex':'女'})])
   r=ask(c,'打錯了，是陳曉芳',[('update_patient_profile',{'name':'陳曉芳'})]);assert r['patient']['name']=='陳曉芳'
   checks+=['agent_selects_only_patients_the_pharmacist_named','only_names_of_patients_created_in_this_conversation_can_be_corrected']
+  r=ask(c,'上次檢查結果呢',[('get_latest_review',{'reason':'藥師詢問'}),('select_patient',{})],reply='这次检查还没有结果。')
+  assert '參數不正確' not in json.dumps(r['results'],ensure_ascii=False) and '缺少參數' in r['results'][1]['error'] and r['reply']=='這次檢查還沒有結果。'
+  assert '仿單原文：目前可檢索' in r['model_messages'][0]['content'] and '沒有的功能：刪除整份病歷' in r['model_messages'][0]['content']
+  checks+=['extra_tool_arguments_are_ignored_and_missing_ones_are_named','replies_are_shown_in_traditional_characters','agent_knows_label_count_and_screen_features']
  result={'all_passed':True,'checks':checks,'isolated_runtime':True,'model':'scripted tool calls; no model server'}
  (ROOT/'validation/pharmacist-agent-validation.json').write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8');print(json.dumps(result,ensure_ascii=False))
