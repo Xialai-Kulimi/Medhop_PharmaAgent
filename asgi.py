@@ -484,7 +484,7 @@ def agent_context(sid):
         start_review=agent_start_review,quick_check=agent_quick_check,alerts=agent_alerts,log_input=agent_log_input,
         set_acquisition=agent_set_acquisition,enrich=lambda med:store.ingredient_lookup.enrich(med) if getattr(store,'ingredient_lookup',None) else None,
         log_run=agent_dev_log if DEV else None)
-def agent_model():return {'url':core.MODEL_URL,'model':core.MODEL,'headers':core.model_headers()}
+def agent_model():return {'url':core.MODEL_URL,'model':core.MODEL,'headers':core.model_headers(),'options':core.model_options()}
 AGENT_LOG_LOCK=threading.Lock()
 def agent_log_path():return core.RUNTIME/'agent-log.jsonl'
 def agent_dev_log(entry):

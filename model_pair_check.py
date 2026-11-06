@@ -65,6 +65,7 @@ def classify(assessment,url,model,stop):
             call['status']='skipped_manual_review';continue
         payload={'model':model,'messages':messages,'temperature':0,'max_tokens':MAX_OUTPUT,
                  'stream':False,'chat_template_kwargs':{'enable_thinking':False}}
+        if os.environ.get('MODEL_REASONING_EFFORT'):payload['reasoning_effort']=os.environ['MODEL_REASONING_EFFORT']
         req=urllib.request.Request(url.rstrip('/')+'/chat/completions',data=json.dumps(payload).encode(),
                                    headers={'Content-Type':'application/json','Authorization':'Bearer '+os.environ.get('MODEL_API_KEY','local-only')})
         try:

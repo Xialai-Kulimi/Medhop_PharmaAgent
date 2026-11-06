@@ -19,6 +19,10 @@ MODEL = 'qwen3-it-4b-FLM'
 MODEL_KEY = os.environ.get('MODEL_API_KEY', 'local-only')
 def model_headers():
     return {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + MODEL_KEY}
+def model_options():
+    # Ollama ignores chat_template_kwargs; thinking models such as gemma4 need reasoning_effort (e.g. none) to stop thinking.
+    effort = os.environ.get('MODEL_REASONING_EFFORT', '')
+    return {'reasoning_effort': effort} if effort else {}
 JOBS, JOB_LOCK = {}, threading.Lock()
 MODEL_LOCK = threading.Lock()
 STORE = None
@@ -285,7 +289,7 @@ class Job:
                 '引用必須使用提供的ID，不得新增ID。不要輸出思考過程。')
             content = f'角色：{self.role}\n已確認的病歷：\n{self.record["text"] or "未提供"}\n問題：{self.question}\n仿單字面藥名覆蓋：{json.dumps(self.coverage,ensure_ascii=False)}\n檢索原文：\n{evidence}\n/no_think'
             data = {'model': MODEL, 'messages':[{'role':'system','content':system},{'role':'user','content':content}],
-                    'temperature':0, 'max_tokens':1600, 'stream':True, 'chat_template_kwargs':{'enable_thinking':False}}
+                    'temperature':0, 'max_tokens':1600, 'stream':True, 'chat_template_kwargs':{'enable_thinking':False}, **model_options()}
             request = urllib.request.Request(MODEL_URL+'/chat/completions', data=json.dumps(data).encode(), headers=model_headers())
             with urllib.request.urlopen(request, timeout=120) as response:
                 self.response = response

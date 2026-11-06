@@ -635,7 +635,7 @@ def call_model(cfg, messages, first, final=False):
     # The first round must pick a tool: without this the model answered drug questions from memory and invented citations.
     choice = 'none' if final else 'required' if first else 'auto'
     data = {'model': cfg['model'], 'messages': messages, 'tools': TOOLS, 'tool_choice': choice, 'temperature': 0,
-            'max_tokens': 1500, 'chat_template_kwargs': {'enable_thinking': False}}
+            'max_tokens': 1500, 'chat_template_kwargs': {'enable_thinking': False}, **cfg.get('options', {})}
     request = urllib.request.Request(cfg['url'].rstrip('/') + '/chat/completions', data=json.dumps(data).encode(), headers=cfg['headers'])
     with urllib.request.urlopen(request, timeout=120) as response:
         payload = json.load(response)
