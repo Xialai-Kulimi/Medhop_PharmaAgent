@@ -15,7 +15,7 @@ services:
       - pharmacy-records:/app/runtime
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "/opt/python314/bin/python3.14", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8502/api/patients',timeout=5)"]
+      test: ["CMD", "/opt/python314/bin/python3.14", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8502/',timeout=5)"]
       interval: 30s
       timeout: 10s
       start_period: 90s
