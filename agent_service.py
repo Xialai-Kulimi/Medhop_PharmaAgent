@@ -3,6 +3,8 @@ from pathlib import Path
 import json, os, subprocess, tempfile, time
 
 ROOT=Path(__file__).resolve().parent
+# The worker's own system prompt sets no language; without this, Chinese-capable models answer in simplified characters.
+RESPONSE_TYPE='one concise paragraph, at most 150 words, written in Traditional Chinese as used in Taiwan (繁體中文); keep drug, gene and protein names and [Data: ...] citations unchanged'
 
 def graphrag(query,stop=None):
     python=os.environ.get('MEDHOP_PYTHON','')
@@ -12,7 +14,7 @@ def graphrag(query,stop=None):
         output=Path(folder)/'result.json';log=Path(folder)/'worker.log'
         env={**os.environ,'MEDLINK_RESULT_FILE':str(output),'PYTHONIOENCODING':'utf-8','GRAPHRAG_API_KEY':'local-only','MODEL_URL':os.environ.get('MODEL_URL','http://127.0.0.1:13305/api/v1')}
         with log.open('w',encoding='utf-8') as stream:
-            proc=subprocess.Popen([python,str(ROOT/'vendor'/'medhop'/'medhop_query.py'),'--root',root,'--method','local',query],cwd=ROOT,stdout=stream,stderr=stream,env=env,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+            proc=subprocess.Popen([python,str(ROOT/'vendor'/'medhop'/'medhop_query.py'),'--root',root,'--method','local','--response-type',RESPONSE_TYPE,query],cwd=ROOT,stdout=stream,stderr=stream,env=env,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
             deadline=time.monotonic()+150
             while proc.poll() is None:
                 if (stop and stop.is_set()) or time.monotonic()>deadline:
