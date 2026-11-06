@@ -19,6 +19,11 @@ with tempfile.TemporaryDirectory(dir=ROOT/'runtime') as folder:
  assert doc['version']=='2' and doc['approved']=='2026-01-05' and text['1.1 有效成分及含量']=='Zorbatide 10 mg'
  assert text['7 交互作用']=='Zorbatide與Quelmazole併用時，應避免併用。\n其他&說明' and doc['warning']=='驗證用警語'
  checks.append('insert_xml_decodes_entities_base64_and_stops_at_content')
+ # Most catalog products have no structured insert; the platform answers with an empty skeleton.
+ empty=b'<?xml version="1.0" encoding="utf-8"?><ROOTDOCUMENT><DOCUMENT><INFO /><CHARACT /><WARNING /><CONTENT /></DOCUMENT></ROOTDOCUMENT>'
+ try:dk.parse_insert(empty,'衛署藥製字第039346號');raise AssertionError('empty skeleton accepted')
+ except ValueError as error:assert '沒有 衛署藥製字第039346號 的電子仿單' in str(error) and '圖片' not in str(error)
+ checks.append('empty_insert_skeleton_reports_no_insert')
  asgi.drug_knowledge.fetch_insert=lambda license,deadline=30:{**dk.parse_insert(FIXTURE,license),'source_url':'fixture'}
  def patient(*names):return {'id':'T','version':1,'medications':[{'id':i,'name':n,'name_key':n.casefold(),'status':'active'} for i,n in enumerate(names)]}
  def review(*names):

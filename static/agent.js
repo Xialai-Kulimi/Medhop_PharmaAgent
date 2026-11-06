@@ -51,8 +51,14 @@ async function renderAgentAction(body,action){
   if(action.type==='drug_document'){body.append(drugPreview(action.document,body));return;}
   if(action.type==='drug_candidates'){
     const list=el('div','candidate-list drug-candidates');
-    for(const c of action.candidates)list.append(button(`${c.name||c.name_en} · ${c.license}${c.ingredient?' · '+c.ingredient:''}${c.saved_version?' · 已在藥品資料庫（版本 '+c.saved_version+'）':''}`,()=>fetchDrugCandidate(c.license,list),'btn btn-quiet'));
-    body.append(list,el('p','muted drug-note','候選來自本機的食藥署未註銷許可證快照；請依實際產品選擇，不同廠牌的仿單內容可能不同。'));
+    for(const c of action.candidates){
+      const label=`${c.name||c.name_en} · ${c.license}${c.ingredient?' · '+c.ingredient:''}${c.saved_version?' · 已在藥品資料庫（版本 '+c.saved_version+'）':''}${c.tfda_insert===false?' · 食藥署無電子仿單':''}`;
+      const pick=button(label,()=>fetchDrugCandidate(c.license,list),'btn btn-quiet');
+      // No structured insert on the platform: picking it can only fail, so the pharmacist pastes the text instead.
+      if(c.tfda_insert===false){pick.disabled=true;pick.dataset.noInsert='1';pick.title='食藥署電子仿單平台沒有這個產品的電子仿單，請改選其他廠牌或貼上仿單內容';}
+      list.append(pick);
+    }
+    body.append(list,el('p','muted drug-note','候選來自本機的食藥署未註銷許可證快照；請依實際產品選擇，不同廠牌的仿單內容可能不同。標示「食藥署無電子仿單」的產品請改貼上仿單內容。'));
   }
 }
 async function renderQuickCheck(body,action){

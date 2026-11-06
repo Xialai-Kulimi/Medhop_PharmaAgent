@@ -8,6 +8,7 @@
 2. 寫入的姓名與藥名必須出現在藥師這一次的訊息裡。
 """
 import copy, hashlib, inspect, json, re, secrets, threading, time, urllib.error, urllib.request
+from concurrent.futures import ThreadPoolExecutor
 
 import drug_knowledge
 import record_tools
@@ -531,9 +532,16 @@ class Toolbox:
         rows = drug_knowledge.candidates(self.ctx.catalog, query)
         saved = self.ctx.library.saved_versions([r['license'] for r in rows])
         rows = [{**r, 'saved_version': saved.get(r['license'])} for r in rows]
+        # Most catalog products have no structured insert on the TFDA platform; check first so nobody picks a dead end.
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            found = list(pool.map(drug_knowledge.insert_available, [r['license'] for r in rows]))
+        rows = [{**r, 'tfda_insert': f} for r, f in zip(rows, found)]
+        rows.sort(key=lambda r: r['tfda_insert'] is not True)
         if show_to_pharmacist and rows:
             self.run.actions.append({'type': 'drug_candidates', 'query': query, 'candidates': rows})
-        return {'products': rows, 'shown_to_pharmacist': bool(show_to_pharmacist and rows), '_summary': f'「{query}」{len(rows)} 筆'}
+        note = '只有 tfda_insert 為 true 的產品能用 fetch_tfda_insert 取得電子仿單；false 表示食藥署平台沒有這個產品的電子仿單，請藥師改選其他廠牌或貼上仿單內容'
+        return {'products': rows, 'shown_to_pharmacist': bool(show_to_pharmacist and rows), 'note': note,
+                '_summary': f'「{query}」{len(rows)} 筆，{sum(r["tfda_insert"] is True for r in rows)} 筆有電子仿單'}
 
     def tool_fetch_tfda_insert(self, license):
         number = drug_knowledge.license_code(str(license))[0]

@@ -17,7 +17,7 @@ async function fetchDrugCandidate(license,list){
   const body=newTurn(),steps=el('ol','steps'),first={title:'藥師選擇實際產品',by:'藥師',result:license,state:'done'};body.append(steps);
   renderSteps(steps,[first,{title:'取得食藥署電子仿單',by:'fetch_tfda_insert',result:'連線中',state:'running'}]);
   try{renderDrugResult(body,steps,await api('/api/drug-knowledge/fetch',{license}),first);}
-  catch(err){renderSteps(steps,[first,{title:'取得食藥署電子仿單',by:'fetch_tfda_insert',result:'未完成',state:'error'}]);body.append(el('div','notice warn',err.message));list.querySelectorAll('button').forEach(b=>b.disabled=false);}
+  catch(err){renderSteps(steps,[first,{title:'取得食藥署電子仿單',by:'fetch_tfda_insert',result:'未完成',state:'error'}]);body.append(el('div','notice warn',err.message));list.querySelectorAll('button:not([data-no-insert])').forEach(b=>b.disabled=false);}
   finally{setBusy(false);scrollEnd();}
 }
 function drugPreview(doc,body){

@@ -20,6 +20,7 @@ LICENSE_PREFIX={
     '內衛藥製字':'12','內衛藥輸字':'13','內衛成製字':'14','內衛菌疫製字':'15','內衛菌疫輸字':'16'}
 LICENSE_RE=re.compile(r'((?:衛署|衛部|內衛)[一-鿿]{2,5}字)\s*第?\s*(\d{4,6})\s*號?')
 API='https://mcp.fda.gov.tw/Serv/Query.asmx/GetDrugDoc'
+NO_INSERT='食藥署電子仿單平台沒有 {} 的電子仿單（平台只收錄部分產品）；可改選其他廠牌，或由藥師貼上仿單內容'
 PAGE='https://mcp.fda.gov.tw/im_detail_1/'
 AGENT='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15'
 HEADINGS=('適應症','用法用量','用法及用量','禁忌','警語','注意事項','交互作用','副作用','不良反應','特殊族群','懷孕','授乳','過量','藥理','藥物動力學','臨床','儲存','包裝','性狀','成分')
@@ -66,7 +67,8 @@ def parse_insert(data,license):
     try:root=ET.fromstring(text)
     except ET.ParseError:raise ValueError('食藥署回應不完整，請稍後再試，或改由藥師貼上仿單內容')
     doc=root.find('DOCUMENT')
-    if doc is None or doc.find('INFO') is None:raise ValueError('食藥署電子仿單平台查無 '+license+' 的電子仿單；可改由藥師貼上仿單內容')
+    # Products without a structured insert come back as an empty skeleton (<INFO /> … <CONTENT />).
+    if doc is None or doc.find('INFO') is None or not len(doc.find('INFO')):raise ValueError(NO_INSERT.format(license))
     info={child.tag:(child.text or '').strip() for child in doc.find('INFO')}
     sections=[]
     def walk(node,level):
@@ -86,6 +88,18 @@ def parse_insert(data,license):
     return {'kind':'tfda','name':info.get('CNAME',''),'name_en':info.get('ENAME',''),'license':info.get('SNO') or license,
             'version':info.get('VERSION',''),'approved':info.get('VDATE',''),'category':info.get('DTYPE',''),
             'warning':block('WARNING'),'sections':sections,'page_url':page_url(info.get('SNO') or license)}
+
+def insert_available(license,timeout=8):
+    """True/False when the platform answers; None when it cannot be reached. Reads only the head of the response."""
+    try:
+        license,code=license_code(license)
+        url=API+'?'+urllib.parse.urlencode({'license':code,'s_code':'','startdate':'','enddate':''})
+        with urllib.request.urlopen(urllib.request.Request(url,headers={'User-Agent':AGENT}),timeout=timeout) as response:
+            head=response.read(4096).decode('utf-8','replace')
+    except Exception:
+        return None
+    if '<INFO />' in head or '<INFO/>' in head:return False
+    return True if '<INFO>' in head else None
 
 def fetch_insert(license,deadline=30):
     license,code=license_code(license)
